@@ -1,0 +1,37 @@
+[
+    {
+        "data": "2025-05-17 10:52",
+        "conto": "Prepagata",
+        "descrizione": "\ud83d\udee0 Correzione manuale",
+        "importo": 12.61,
+        "categoria": "correzione"
+    },
+    {
+        "data": "2025-05-17 10:52",
+        "conto": "Prepagata",
+        "descrizione": "\ud83d\udee0 Correzione manuale",
+        "importo": -12.61,
+        "categoria": "correzione"
+    },
+    {
+        "data": "2025-05-17 10:53",
+        "conto": "Prepagata",
+        "descrizione": "\ud83d\udee0 Correzione manuale",
+        "importo": 12.61,
+        "categoria": "correzione"
+    },
+    {
+        "data": "2025-05-17 10:55",
+        "conto": "Prepagata",
+        "descrizione": "\ud83d\udee0 Correzione manuale",
+        "importo": -12.61,
+        "categoria": "correzione"
+    },
+    {
+        "data": "2025-05-17 13:59",
+        "conto": "Investimenti",
+        "descrizione": "\ud83d\udee0 Correzione manuale",
+        "importo": 2292.0,
+        "categoria": "correzione"
+    }
+]

@@ -1,49 +1,37 @@
-import os
 import json
+import os
 from datetime import datetime
 
-# Percorso del file transazioni
-PERCORSO_TRANSAZIONI = os.path.join("data", "transazioni.json")
-
+FILE_TRANSAZIONI = "data/transazioni.json"
+FILE_CONTI = "data/conti.json"
 
 def carica_transazioni():
-    if os.path.exists(PERCORSO_TRANSAZIONI):
-        with open(PERCORSO_TRANSAZIONI, "r") as f:
-            return json.load(f)
-    return []
-
+    if not os.path.exists(FILE_TRANSAZIONI):
+        return []
+    with open(FILE_TRANSAZIONI, "r") as f:
+        return json.load(f)
 
 def salva_transazioni(transazioni):
-    with open(PERCORSO_TRANSAZIONI, "w") as f:
+    with open(FILE_TRANSAZIONI, "w") as f:
         json.dump(transazioni, f, indent=4)
 
-
-def aggiungi_transazione(tipo, conto, importo, categoria, descrizione=""):
-    transazioni = carica_transazioni()
-    transazione = {
-        "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "tipo": tipo,  # "entrata", "uscita", "correzione", "giraconto"
-        "conto": conto,
-        "importo": importo,
-        "categoria": categoria,
-        "descrizione": descrizione
-    }
-    transazioni.append(transazione)
-    salva_transazioni(transazioni)
-
-    # Aggiorna saldo nel file conti
+def aggiungi_transazione(nome_conto, descrizione, importo, categoria):
     from gestione_conti import carica_conti, salva_conti
     conti = carica_conti()
-    if conto not in conti:
-        raise ValueError(f"Il conto '{conto}' non esiste.")
 
-    if tipo == "entrata":
-        conti[conto] += importo
-    elif tipo == "uscita":
-        conti[conto] -= importo
-    elif tipo == "correzione":
-        conti[conto] = importo
-    elif tipo == "giraconto":
-        pass  # gestito a parte
+    if nome_conto not in conti:
+        raise ValueError("Conto inesistente.")
 
+    conti[nome_conto] += importo
     salva_conti(conti)
+
+    transazioni = carica_transazioni()
+    transazioni.append({
+        "data": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "conto": nome_conto,
+        "descrizione": descrizione,
+        "importo": importo,
+        "categoria": categoria
+    })
+    salva_transazioni(transazioni)
+
