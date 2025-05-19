@@ -4,6 +4,7 @@ from gestione_conti import carica_conti, aggiungi_conto, rimuovi_conto, modifica
 from utils.sfondo import scegli_sfondo_casuale, ridimensiona_sfondo
 from gestione_transazioni import carica_transazioni, aggiungi_transazione
 from datetime import datetime
+from logica_transazioni import registra_transazione
 
 
 def apri_popup_modifica_saldo(root, aggiorna_saldi_callback):
@@ -28,7 +29,7 @@ def apri_popup_modifica_saldo(root, aggiorna_saldi_callback):
             return
 
         try:
-            modifica_saldo(nome_conto, nuovo_saldo)
+            modifica_saldo(nome_conto, nuovo_saldo, aggiungi_transazione)
         except Exception as e:
             messagebox.showerror("Errore", str(e))
             return
@@ -128,7 +129,7 @@ def mostra_transazioni(cont_transactions, titolo="Transazioni"):
     finestra.title(titolo)
     finestra.geometry("600x400")
 
-    tree = ttk.Treeview(finestra, columns=("Data", "Conto", "Tipo", "Categoria", "Importo", "Descrizione"), show="headings")
+    tree = ttk.Treeview(finestra, columns=("Data", "Conto", "Categoria", "Importo", "Descrizione"), show="headings")
     for col in tree["columns"]:
         tree.heading(col, text=col)
         tree.column(col, width=100)
@@ -136,7 +137,7 @@ def mostra_transazioni(cont_transactions, titolo="Transazioni"):
 
     for tr in cont_transactions:
         tree.insert("", "end", values=(
-            tr["data"], tr["conto"], tr["tipo"], tr["categoria"], f'{tr["importo"]:.2f}', tr["descrizione"]
+            tr["data"], tr["conto"], tr["categoria"], f'{tr["importo"]:.2f}', tr["descrizione"]
         ))
 
 def aggiungi_transazione_popup(root, conti):
@@ -155,14 +156,7 @@ def aggiungi_transazione_popup(root, conti):
             if tipo not in ["Entrata", "Uscita", "Giroconto"]:
                 messagebox.showerror("Errore", "Tipo non valido.")
                 return
-            aggiungi_transazione({
-                "conto": conto,
-                "tipo": tipo,
-                "categoria": categoria,
-                "importo": importo,
-                "descrizione": descrizione,
-                "data": data,
-            })
+            registra_transazione(importo, conto, categoria, descrizione, data=None)
             messagebox.showinfo("Successo", "Transazione aggiunta.")
             finestra.destroy()
         except Exception as e:
@@ -239,7 +233,7 @@ def main():
    # frame_saldi.pack(pady=10)
 
     frame_conti = tk.Frame(root, bg="white")
-    frame_conti.pack(pady=10)
+    frame_conti.pack(pady=15)
 
    # mostra_saldi(frame_saldi, conti)
 

@@ -33,5 +33,12 @@
         "descrizione": "\ud83d\udee0 Correzione manuale",
         "importo": 2292.0,
         "categoria": "correzione"
+    },
+    {
+        "data": "2025-05-19",
+        "conto": "Contanti",
+        "importo": 2.0,
+        "categoria": "test",
+        "descrizione": "test"
     }
 ]

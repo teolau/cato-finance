@@ -1,6 +1,5 @@
 import json
 import os
-from gestione_transazioni import aggiungi_transazione
 
 FILE_CONTI = "data/conti.json"
 
@@ -28,7 +27,8 @@ def rimuovi_conto(nome_conto):
     del conti[nome_conto]
     salva_conti(conti)
 
-def modifica_saldo(nome_conto, nuovo_saldo):
+def modifica_saldo(nome_conto, nuovo_saldo, aggiungi_transazione):
+    #dependency injection per aggiungi_transazione bc im a lazy ass
     conti = carica_conti()
     if nome_conto not in conti:
         raise ValueError("Conto inesistente.")
@@ -39,3 +39,9 @@ def modifica_saldo(nome_conto, nuovo_saldo):
     # NON aggiornare conti[nome_conto] qui, ma solo tramite aggiungi_transazione
     aggiungi_transazione(nome_conto, "🛠 Correzione manuale", differenza, "correzione")
 
+def aggiorna_saldo(nome_conto, importo):
+    conti = carica_conti()
+    if nome_conto not in conti:
+        conti[nome_conto] = 0
+    conti[nome_conto] += importo
+    salva_conti(conti)
