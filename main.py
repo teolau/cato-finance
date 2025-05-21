@@ -5,6 +5,8 @@ from utils.sfondo import scegli_sfondo_casuale, ridimensiona_sfondo
 from gestione_transazioni import carica_transazioni, aggiungi_transazione
 from datetime import datetime
 from logica_transazioni import registra_transazione
+from gestione_investimenti import apri_finestra_investimenti
+
 
 
 def apri_popup_modifica_saldo(root, aggiorna_saldi_callback):
@@ -282,15 +284,16 @@ def main():
 
     tk.Label(root, text="Cato Finance :)", font=("Arial", 16), bg="white").pack(pady=10)
 
-   # frame_saldi = tk.Frame(root, bg="white")
-   # frame_saldi.pack(pady=10)
-
     frame_conti = tk.Frame(root, bg="white")
     frame_conti.pack(pady=15)
 
-   # mostra_saldi(frame_saldi, conti)
+    btn_gestisci_investimenti = tk.Button(root, text="Gestisci Investimenti", bg="lightblue",
+                                          command=apri_finestra_investimenti)
+    btn_gestisci_investimenti.pack(pady=(0, 10))
 
     for nome_conto in conti:
+        if nome_conto == "Investimenti":
+            continue
         tk.Button(frame_conti, text=f"{nome_conto} ({conti[nome_conto]:.2f} €)",
                   command=lambda c=nome_conto: mostra_transazioni([tr for tr in transazioni if tr["conto"] == c],
                                                                   f"Transazioni - {c}")).pack(pady=5)

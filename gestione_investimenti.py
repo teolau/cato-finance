@@ -1,0 +1,331 @@
+import tkinter as tk
+from tkinter import ttk
+from tkinter import messagebox
+import json
+from datetime import datetime
+import yfinance as yf
+import os
+
+percorso_file = "data/investimenti.json"
+
+if os.path.exists(percorso_file):
+    try:
+        with open(percorso_file, "r") as f:
+            contenuto = f.read().strip()
+            if contenuto:
+                investimenti = json.loads(contenuto)
+            else:
+                investimenti = {}
+    except json.JSONDecodeError:
+        print("Errore nel parsing del file JSON. Il file potrebbe essere corrotto.")
+        investimenti = {}
+else:
+    investimenti = {}
+
+def calcola_pmu(storico):
+    totale_costo = 0
+    totale_quantita = 0
+
+    for op in storico:
+        if op["tipo"] == "acquisto":
+            totale_costo += op["quantita"] * op["prezzo_unitario"]
+            totale_quantita += op["quantita"]
+        elif op["tipo"] == "vendita":
+            totale_quantita -= op["quantita"]
+
+    if totale_quantita == 0:
+        return 0
+
+    return totale_costo / totale_quantita
+
+def calcola_quantita_posseduta(storico):
+    return sum(
+        op["quantita"] if op.get("tipo", "acquisto") == "acquisto" else -op["quantita"]
+        for op in storico
+    )
+
+
+def recupera_info_ticker(ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        if "shortName" not in info or info["regularMarketPrice"] is None:
+            return None
+        return {
+            "nome": info["shortName"],
+            "prezzo": info["regularMarketPrice"]
+        }
+    except Exception:
+        return None
+
+
+def acquista_azione(ticker, quantita):
+    ticker = ticker.upper()
+    info = recupera_info_ticker(ticker)
+    if not info:
+        return {"successo": False, "errore": "Ticker non valido o dati non disponibili."}
+
+    operazione = {
+        "tipo": "acquisto",
+        "data": datetime.now().strftime("%Y-%m-%d"),
+        "quantita": quantita,
+        "prezzo_unitario": info["prezzo"]
+    }
+
+    if ticker not in investimenti:
+        investimenti[ticker] = []
+
+    investimenti[ticker].append(operazione)
+
+    with open(percorso_file, "w") as f:
+        json.dump(investimenti, f, indent=4)
+
+    return {"successo": True, "dati": operazione}
+
+
+def apri_popup_acquisto():
+    popup = tk.Toplevel()
+    popup.title("Acquista Azione")
+
+    larghezza = 300
+    altezza = 150
+    x = (popup.winfo_screenwidth() // 2) - (larghezza // 2)
+    y = (popup.winfo_screenheight() // 2) - (altezza // 2)
+    popup.geometry(f"{larghezza}x{altezza}+{x}+{y}")
+
+    # Etichette e campi
+    tk.Label(popup, text="Ticker:").grid(row=0, column=0, padx=10, pady=10, sticky="e")
+    entry_ticker = tk.Entry(popup)
+    entry_ticker.grid(row=0, column=1, padx=10, pady=10)
+
+    tk.Label(popup, text="Quantità:").grid(row=1, column=0, padx=10, pady=10, sticky="e")
+    entry_quantita = tk.Entry(popup)
+    entry_quantita.grid(row=1, column=1, padx=10, pady=10)
+
+    def conferma_acquisto():
+        ticker = entry_ticker.get().strip().upper()
+        try:
+            quantita = float(entry_quantita.get())
+            if quantita <= 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Errore", "Inserisci una quantità valida.")
+            return
+
+        risultato = acquista_azione(ticker, quantita)
+        if risultato["successo"]:
+            messagebox.showinfo("Successo", f"Acquistate {quantita} azioni di {ticker} a {risultato['dati']['prezzo_unitario']} €.")
+            popup.destroy()
+
+        else:
+            messagebox.showerror("Errore", risultato["errore"])
+
+    tk.Button(popup, text="Conferma", command=conferma_acquisto).grid(row=2, column=0, columnspan=2, pady=10)
+
+
+def vendi_azione(ticker, quantita):
+    ticker = ticker.upper()
+
+    if not os.path.exists(percorso_file):
+        return {"successo": False, "errore": "Nessun investimento registrato."}
+
+    with open(percorso_file, "r") as f:
+        investimenti = json.load(f)
+
+    if ticker not in investimenti:
+        return {"successo": False, "errore": f"Non possiedi azioni di {ticker}."}
+
+    storico = investimenti[ticker]
+    possedute = calcola_quantita_posseduta(storico)
+
+    if quantita > possedute:
+        return {"successo": False, "errore": f"Hai solo {possedute} azioni di {ticker}."}
+
+    try:
+        info = yf.Ticker(ticker).info
+        prezzo_attuale = info.get("regularMarketPrice")
+        if prezzo_attuale is None:
+            raise ValueError("Prezzo non disponibile")
+    except Exception as e:
+        return {"successo": False, "errore": f"Errore nel recupero del prezzo: {e}"}
+
+    pmu = calcola_pmu(storico)
+    guadagno_per_azione = prezzo_attuale - pmu
+    guadagno_totale = guadagno_per_azione * quantita
+
+    operazione = {
+        "tipo": "vendita",
+        "data": datetime.now().strftime("%Y-%m-%d"),
+        "quantita": quantita,
+        "prezzo_unitario": prezzo_attuale
+    }
+
+    investimenti[ticker].append(operazione)
+
+    with open(percorso_file, "w") as f:
+        json.dump(investimenti, f, indent=4)
+
+    return {
+        "successo": True,
+        "dati": {
+            "ticker": ticker,
+            "quantita_venduta": quantita,
+            "prezzo_vendita": prezzo_attuale,
+            "pmu": pmu,
+            "guadagno_per_azione": guadagno_per_azione,
+            "guadagno_totale": guadagno_totale
+        }
+    }
+
+
+def apri_popup_vendita():
+    popup = tk.Toplevel()
+    popup.title("Vendi Azione")
+
+    larghezza = 250
+    altezza = 220
+    x = (popup.winfo_screenwidth() // 2) - (larghezza // 2)
+    y = (popup.winfo_screenheight() // 2) - (altezza // 2)
+    popup.geometry(f"{larghezza}x{altezza}+{x}+{y}")
+    popup.resizable(False, False)
+
+    # Etichetta e campo per il ticker
+    tk.Label(popup, text="Ticker:").grid(row=0, column=0, padx=10, pady=(15, 5), sticky="e")
+    entry_ticker = tk.Entry(popup, width=20)
+    entry_ticker.grid(row=0, column=1, padx=10, pady=(15, 5))
+
+    # Etichetta e campo per la quantità
+    tk.Label(popup, text="Quantità:").grid(row=1, column=0, padx=10, pady=5, sticky="e")
+    entry_quantita = tk.Entry(popup, width=20)
+    entry_quantita.grid(row=1, column=1, padx=10, pady=5)
+
+    # Etichetta quantità posseduta
+    lbl_quantita_posseduta = tk.Label(popup, text="Quantità posseduta: -", font=("Arial", 9, "italic"))
+    lbl_quantita_posseduta.grid(row=2, column=0, columnspan=2, pady=(10, 5))
+
+    def aggiorna_quantita_posseduta(event=None):
+        ticker = entry_ticker.get().upper()
+        if ticker in investimenti:
+            quantita = calcola_quantita_posseduta(investimenti[ticker])
+            lbl_quantita_posseduta.config(
+                text=f"Quantità posseduta: {quantita}"
+            )
+        else:
+            lbl_quantita_posseduta.config(text="Ticker non trovato.")
+
+    entry_ticker.bind("<FocusOut>", aggiorna_quantita_posseduta)
+
+
+    def conferma_vendita():
+        ticker = entry_ticker.get().strip().upper()
+        try:
+            quantita = float(entry_quantita.get())
+            if quantita <= 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Errore", "Inserisci una quantità valida.")
+            return
+
+        risultato = vendi_azione(ticker, quantita)
+        if risultato["successo"]:
+            dati = risultato["dati"]
+            messagebox.showinfo(
+                "Vendita completata",
+                f"Hai venduto {dati['quantita_venduta']} azioni di {dati['ticker']} a {dati['prezzo_vendita']:.2f} €\n"
+                f"PMU: {dati['pmu']:.2f} €\n"
+                f"Guadagno per azione: {dati['guadagno_per_azione']:.2f} €\n"
+                f"Totale: {dati['guadagno_totale']:.2f} €"
+            )
+            popup.destroy()
+        else:
+            messagebox.showerror("Errore", risultato["errore"])
+
+    tk.Button(popup, text="Conferma", command=conferma_vendita).grid(row=3, column=0, columnspan=2, pady=10)
+
+def apri_finestra_investimenti():
+    finestra = tk.Toplevel()
+    finestra.title("Gestione Investimenti")
+    larghezza = 850
+    altezza = 600
+    x = (finestra.winfo_screenwidth() // 2) - (larghezza // 2)
+    y = (finestra.winfo_screenheight() // 2) - (altezza // 2)
+    finestra.geometry(f"{larghezza}x{altezza}+{x}+{y}")
+
+    # Valore totale portafoglio (inizialmente 0, verrà aggiornato dopo)
+    lbl_valore_totale = tk.Label(finestra, text="Valore Totale: €0.00", font=("Helvetica", 14, "bold"))
+    lbl_valore_totale.pack(pady=10)
+
+    # Placeholder per grafico
+    grafico_placeholder = tk.Label(finestra, text="[Grafico andamento nel tempo]", bg="lightgray", height=5)
+    grafico_placeholder.pack(fill="x", padx=20, pady=5)
+
+    # Lista titoli
+    frame_titoli = tk.Frame(finestra)
+    frame_titoli.pack(fill="both", expand=True, padx=20, pady=10)
+
+    colonne = ("Ticker", "Quantità", "Valore", "Variazione 1D")
+    tabella = ttk.Treeview(frame_titoli, columns=colonne, show="headings", height=10)
+
+    for col in colonne:
+        tabella.heading(col, text=col)
+        tabella.column(col, anchor="center")
+
+    tabella.pack(fill="both", expand=True)
+
+    valore_totale_portafoglio = 0.0
+
+    for ticker, operazioni in investimenti.items():
+        quantita_totale = calcola_quantita_posseduta(operazioni)
+
+        if quantita_totale <= 0:
+            continue  # Salta i titoli completamente venduti
+
+        try:
+            yf_ticker = yf.Ticker(ticker)
+            info = yf_ticker.info
+            prezzo_corrente = info.get("regularMarketPrice")
+            prezzo_precedente = info.get("previousClose", prezzo_corrente)
+
+            if prezzo_corrente is None:
+                raise ValueError("Prezzo non disponibile")
+
+            variazione = prezzo_corrente - prezzo_precedente
+            variazione_percentuale = (variazione / prezzo_precedente) * 100 if prezzo_precedente else 0
+
+            valore = quantita_totale * prezzo_corrente
+            valore_totale_portafoglio += valore
+
+            tabella.insert("", "end", values=(
+                ticker,
+                f"{quantita_totale}",
+                f"{valore:.2f} €",
+                f"{variazione_percentuale:+.2f}%"
+            ))
+        except Exception as e:
+            tabella.insert("", "end", values=(
+                ticker,
+                f"{quantita_totale}",
+                "Errore",
+                "N/D"
+            ))
+
+    # Aggiorna il valore totale del portafoglio
+    lbl_valore_totale.config(text=f"Valore Totale: €{valore_totale_portafoglio:,.2f}")
+
+    # Pulsanti operazioni
+    frame_bottoni = tk.Frame(finestra)
+    frame_bottoni.pack(pady=10)
+
+    btn_acquista = tk.Button(frame_bottoni, text="Acquista Azione", bg="#b3ffcc", command=apri_popup_acquisto)
+    btn_acquista.grid(row=0, column=0, padx=10)
+
+    btn_vendi = tk.Button(frame_bottoni, text="Vendi Azione", bg="#ffcccc", command=apri_popup_vendita)
+    btn_vendi.grid(row=0, column=1, padx=10)
+
+    btn_dettagli = tk.Button(frame_bottoni, text="Dettagli avanzati", width=18,
+                             command=lambda: messagebox.showinfo("In sviluppo", "Dettagli avanzati in sviluppo"))
+    btn_dettagli.grid(row=0, column=2, padx=10)
+
+    btn_watchlist = tk.Button(frame_bottoni, text="Watchlist", width=15,
+                              command=lambda: messagebox.showinfo("In sviluppo", "Watchlist in sviluppo"))
+    btn_watchlist.grid(row=0, column=3, padx=10)

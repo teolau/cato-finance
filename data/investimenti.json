@@ -1,0 +1,24 @@
+{
+    "GME": [
+        {
+            "tipo": "acquisto",
+            "data": "2025-05-21",
+            "quantita": 47.8263,
+            "prezzo_unitario": 28.37
+        }
+    ],
+    "NVDA": [
+        {
+            "tipo": "acquisto",
+            "data": "2025-05-21",
+            "quantita": 5.0,
+            "prezzo_unitario": 132.8586
+        },
+        {
+            "tipo": "vendita",
+            "data": "2025-05-21",
+            "quantita": 5.0,
+            "prezzo_unitario": 132.84
+        }
+    ]
+}
