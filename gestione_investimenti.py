@@ -5,6 +5,8 @@ import json
 from datetime import datetime
 import yfinance as yf
 import os
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 percorso_file = "data/investimenti.json"
 
@@ -21,6 +23,85 @@ if os.path.exists(percorso_file):
         investimenti = {}
 else:
     investimenti = {}
+
+def calcola_valore_portafoglio(investimenti):
+    valore_totale = 0.0
+
+    for ticker, dati in investimenti.items():
+        try:
+            info = yf.Ticker(ticker).info
+            prezzo_attuale = info.get("regularMarketPrice")
+
+            if prezzo_attuale is not None:
+                valore_totale += prezzo_attuale * dati["quantita"]
+        except Exception as e:
+            print(f"Errore nel recupero del prezzo per {ticker}: {e}")
+
+    return valore_totale
+
+def carica_storico():
+    percorso_storico = "data/storico_portafoglio.json"
+    try:
+        with open(percorso_storico, "r") as f:
+            storico = json.load(f)
+            # Lista di tuple (data stringa, valore)
+            return [(item["data"], item["valore"]) for item in storico]
+    except FileNotFoundError:
+        return []
+
+def salva_valore_portafoglio(valore_totale):
+    percorso_storico = "data/storico_portafoglio.json"
+
+    try:
+        with open(percorso_storico, "r") as f:
+            storico = json.load(f)
+    except FileNotFoundError:
+        storico = []
+
+    oggi = datetime.now().strftime("%Y-%m-%d")
+
+    # se più movimenti nella stessa data
+    if storico and storico[-1]["data"] == oggi:
+        storico[-1]["valore"] = valore_totale
+    else:
+        storico.append({"data": oggi, "valore": valore_totale})
+
+    with open(percorso_storico, "w") as f:
+        json.dump(storico, f, indent=2)
+
+def mostra_grafico_andamento(frame_genitore, percorso_storico="data/storico_portafoglio.json"):
+    # Pulisce eventuali grafici o widget precedenti
+    for widget in frame_genitore.winfo_children():
+        widget.destroy()
+
+    try:
+        with open(percorso_storico, "r") as f:
+            storico = json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        tk.Label(frame_genitore, text="Nessun dato disponibile per il grafico.", bg="lightgray", height=5).pack(fill="x")
+        return
+
+    if not storico or len(storico) < 2:
+        tk.Label(frame_genitore, text="Dati insufficienti per generare un grafico, torna domani :P", bg="lightgray", height=5).pack(fill="x")
+        return
+
+    try:
+        date = [datetime.strptime(d, "%Y-%m-%d") for d in storico.keys()]
+        valori = list(storico.values())
+
+        fig, ax = plt.subplots(figsize=(5, 2.5))
+        ax.plot(date, valori, marker='o', color='green')
+        ax.set_title("Valore portafoglio nel tempo")
+        ax.set_xlabel("Data")
+        ax.set_ylabel("Valore (€)")
+        ax.grid(True)
+
+        canvas = FigureCanvasTkAgg(fig, master=frame_genitore)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="x", padx=20, pady=5)
+    except Exception as e:
+        print(f"Errore nella generazione del grafico: {e}")
+        tk.Label(frame_genitore, text="Errore nella visualizzazione del grafico.", bg="lightgray", height=5).pack(fill="x")
 
 def calcola_pmu(storico):
     totale_costo = 0
@@ -44,7 +125,6 @@ def calcola_quantita_posseduta(storico):
         for op in storico
     )
 
-
 def recupera_info_ticker(ticker):
     try:
         stock = yf.Ticker(ticker)
@@ -57,7 +137,6 @@ def recupera_info_ticker(ticker):
         }
     except Exception:
         return None
-
 
 def acquista_azione(ticker, quantita):
     ticker = ticker.upper()
@@ -80,8 +159,10 @@ def acquista_azione(ticker, quantita):
     with open(percorso_file, "w") as f:
         json.dump(investimenti, f, indent=4)
 
-    return {"successo": True, "dati": operazione}
+    valore = calcola_valore_portafoglio(investimenti)
+    salva_valore_portafoglio(valore)
 
+    return {"successo": True, "dati": operazione}
 
 def apri_popup_acquisto():
     popup = tk.Toplevel()
@@ -121,7 +202,6 @@ def apri_popup_acquisto():
             messagebox.showerror("Errore", risultato["errore"])
 
     tk.Button(popup, text="Conferma", command=conferma_acquisto).grid(row=2, column=0, columnspan=2, pady=10)
-
 
 def vendi_azione(ticker, quantita):
     ticker = ticker.upper()
@@ -165,6 +245,9 @@ def vendi_azione(ticker, quantita):
     with open(percorso_file, "w") as f:
         json.dump(investimenti, f, indent=4)
 
+    valore = calcola_valore_portafoglio(investimenti)
+    salva_valore_portafoglio(valore)
+
     return {
         "successo": True,
         "dati": {
@@ -176,7 +259,6 @@ def vendi_azione(ticker, quantita):
             "guadagno_totale": guadagno_totale
         }
     }
-
 
 def apri_popup_vendita():
     popup = tk.Toplevel()
@@ -255,9 +337,11 @@ def apri_finestra_investimenti():
     lbl_valore_totale = tk.Label(finestra, text="Valore Totale: €0.00", font=("Helvetica", 14, "bold"))
     lbl_valore_totale.pack(pady=10)
 
-    # Placeholder per grafico
-    grafico_placeholder = tk.Label(finestra, text="[Grafico andamento nel tempo]", bg="lightgray", height=5)
-    grafico_placeholder.pack(fill="x", padx=20, pady=5)
+    # Frame per il grafico
+    frame_grafico = tk.Frame(finestra, bg="white")
+    frame_grafico.pack(fill="x", padx=20, pady=5)
+
+    mostra_grafico_andamento(frame_grafico)
 
     # Lista titoli
     frame_titoli = tk.Frame(finestra)
