@@ -1,0 +1,49 @@
+IDEA MIGLIORAMENTI GESTIONALE FINANZE PERSONALE
+
+🔧 FUNZIONALITÀ CONCRETE E POTENTI
+
+1. Tag personalizzati e ricerche smart
+   - Crea tag (es: “vacanze”, “bollette”)
+   - Ricerca transazioni per parola chiave o importo
+
+2. Obiettivi finanziari (savings goals)
+   - Definisci obiettivi tipo “vacanza Tokyo: 3000€ entro agosto”
+   - Mostra avanzamento
+
+3. Bilancio mensile automatico
+   - Entrate/spese per categoria
+   - Grafico a torta
+   - Differenza mese precedente
+
+4. Importazione automatica estratti conto
+   - Parser CSV → transazioni
+   - Regole automatiche di categorizzazione
+
+5. Sistema di avvisi
+   - Budget mensile superato
+   - Investimento in perdita oltre X%
+   - Saldo sotto soglia
+
+🌟 FUNZIONALITÀ "WOW"
+
+1. Simulatore di scenari finanziari
+   - Esempi: “Se smetto di lavorare 1 anno?”, “Se compro casa a tasso 4%?”
+
+2. Integrazione con dati reali
+   - Prezzi strumenti finanziari (ETF, azioni)
+   - Cambio valuta, crypto, ecc.
+
+3. Predizioni con machine learning (per il futuro)
+   - Previsione spese mensili
+   - Suggerimenti per taglio spese
+
+4. Accesso multi-dispositivo (web/app)
+   - API REST + interfaccia web
+
+5. Backup automatico e versioning
+   - Salvataggi periodici o manuali
+   - Possibilità di ripristino
+
+👉 Primo step consigliato:
+- Dashboard mensile con grafici
+- Obiettivi di risparmio
