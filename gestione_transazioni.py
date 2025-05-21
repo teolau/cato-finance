@@ -1,6 +1,5 @@
 import json
 import os
-from datetime import datetime
 
 FILE_TRANSAZIONI = "data/transazioni.json"
 FILE_CONTI = "data/conti.json"

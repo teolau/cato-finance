@@ -40,5 +40,54 @@
         "importo": 2.0,
         "categoria": "test",
         "descrizione": "test"
+    },
+    {
+        "data": "2025-05-21",
+        "conto": "Conto Corrente",
+        "importo": 5.0,
+        "categoria": "test",
+        "descrizione": "test"
+    },
+    {
+        "data": "2025-05-21",
+        "conto": "Conto Corrente",
+        "importo": 5.0,
+        "categoria": "test",
+        "descrizione": "test"
+    },
+    {
+        "data": "2025-05-21",
+        "conto": "Conto Corrente",
+        "importo": -10.0,
+        "categoria": "giroconto",
+        "descrizione": "test"
+    },
+    {
+        "data": "2025-05-21",
+        "conto": "Contanti",
+        "importo": 10.0,
+        "categoria": "giroconto",
+        "descrizione": "test"
+    },
+    {
+        "data": "2025-05-21",
+        "conto": "Contanti",
+        "importo": -10.0,
+        "categoria": "Giroconto",
+        "descrizione": "test"
+    },
+    {
+        "data": "2025-05-21",
+        "conto": "Conto Corrente",
+        "importo": 10.0,
+        "categoria": "Giroconto",
+        "descrizione": "test"
+    },
+    {
+        "data": "2025-05-21",
+        "conto": "Prepagata",
+        "importo": 6.0,
+        "categoria": "test",
+        "descrizione": "test"
     }
 ]
