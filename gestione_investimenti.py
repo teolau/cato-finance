@@ -138,17 +138,33 @@ def recupera_info_ticker(ticker):
     except Exception:
         return None
 
-def acquista_azione(ticker, quantita):
+def acquista_azione(ticker, quantita, prezzo=None, data=None):
     ticker = ticker.upper()
-    info = recupera_info_ticker(ticker)
-    if not info:
-        return {"successo": False, "errore": "Ticker non valido o dati non disponibili."}
+
+    if prezzo is None:
+        info = recupera_info_ticker(ticker)
+        if not info:
+            return {"successo": False, "errore": "Ticker non valido o dati non disponibili."}
+        prezzo = info["prezzo"]
+
+    if data is None:
+        data = datetime.now().strftime("%Y-%m-%d")
+    else:
+        # Se viene passato un oggetto datetime.date, lo convertiamo in stringa
+        if isinstance(data, datetime):
+            data = data.strftime("%Y-%m-%d")
+        elif hasattr(data, "strftime"):  # supporta anche date pure
+            data = data.strftime("%Y-%m-%d")
+        elif isinstance(data, str):
+            pass  # già una stringa, assumiamo corretta
+        else:
+            return {"successo": False, "errore": "Formato data non valido."}
 
     operazione = {
         "tipo": "acquisto",
-        "data": datetime.now().strftime("%Y-%m-%d"),
+        "data": data,
         "quantita": quantita,
-        "prezzo_unitario": info["prezzo"]
+        "prezzo_unitario": prezzo
     }
 
     if ticker not in investimenti:
@@ -167,21 +183,42 @@ def acquista_azione(ticker, quantita):
 def apri_popup_acquisto():
     popup = tk.Toplevel()
     popup.title("Acquista Azione")
-
-    larghezza = 300
-    altezza = 150
+    larghezza = 350
+    altezza = 250
     x = (popup.winfo_screenwidth() // 2) - (larghezza // 2)
     y = (popup.winfo_screenheight() // 2) - (altezza // 2)
     popup.geometry(f"{larghezza}x{altezza}+{x}+{y}")
+    popup.resizable(False, False)
 
-    # Etichette e campi
-    tk.Label(popup, text="Ticker:").grid(row=0, column=0, padx=10, pady=10, sticky="e")
+    # Etichette e campi base
+    tk.Label(popup, text="Ticker:").grid(row=0, column=0, padx=10, pady=5, sticky="e")
     entry_ticker = tk.Entry(popup)
-    entry_ticker.grid(row=0, column=1, padx=10, pady=10)
+    entry_ticker.grid(row=0, column=1, padx=10, pady=5)
 
-    tk.Label(popup, text="Quantità:").grid(row=1, column=0, padx=10, pady=10, sticky="e")
+    tk.Label(popup, text="Quantità:").grid(row=1, column=0, padx=10, pady=5, sticky="e")
     entry_quantita = tk.Entry(popup)
-    entry_quantita.grid(row=1, column=1, padx=10, pady=10)
+    entry_quantita.grid(row=1, column=1, padx=10, pady=5)
+
+    usa_prezzo_attuale = tk.BooleanVar(value=True)
+    check_prezzo_attuale = tk.Checkbutton(popup, text="Usa prezzo attuale", variable=usa_prezzo_attuale, command=lambda: toggle_campi_manual_price())
+    check_prezzo_attuale.grid(row=2, column=0, columnspan=2, pady=5)
+
+    # Campi per prezzo e data manuali
+    tk.Label(popup, text="Prezzo (€):").grid(row=3, column=0, padx=10, pady=5, sticky="e")
+    entry_prezzo = tk.Entry(popup)
+    entry_prezzo.grid(row=3, column=1, padx=10, pady=5)
+
+    tk.Label(popup, text="Data (YYYY-MM-DD):").grid(row=4, column=0, padx=10, pady=5, sticky="e")
+    entry_data = tk.Entry(popup)
+    entry_data.grid(row=4, column=1, padx=10, pady=5)
+
+    # Funzione per abilitare/disabilitare i campi manuali
+    def toggle_campi_manual_price():
+        stato = "normal" if not usa_prezzo_attuale.get() else "disabled"
+        entry_prezzo.config(state=stato)
+        entry_data.config(state=stato)
+
+    toggle_campi_manual_price()  # inizializza lo stato corretto
 
     def conferma_acquisto():
         ticker = entry_ticker.get().strip().upper()
@@ -193,51 +230,66 @@ def apri_popup_acquisto():
             messagebox.showerror("Errore", "Inserisci una quantità valida.")
             return
 
-        risultato = acquista_azione(ticker, quantita)
+        if usa_prezzo_attuale.get():
+            risultato = acquista_azione(ticker, quantita)
+        else:
+            try:
+                prezzo = float(entry_prezzo.get())
+                data = datetime.strptime(entry_data.get(), "%Y-%m-%d").date()
+            except ValueError:
+                messagebox.showerror("Errore", "Prezzo o data non validi.")
+                return
+            risultato = acquista_azione(ticker, quantita, prezzo=prezzo, data=data)
+
         if risultato["successo"]:
             messagebox.showinfo("Successo", f"Acquistate {quantita} azioni di {ticker} a {risultato['dati']['prezzo_unitario']} €.")
             popup.destroy()
-
         else:
             messagebox.showerror("Errore", risultato["errore"])
 
-    tk.Button(popup, text="Conferma", command=conferma_acquisto).grid(row=2, column=0, columnspan=2, pady=10)
+    tk.Button(popup, text="Conferma", command=conferma_acquisto).grid(row=5, column=0, columnspan=2, pady=10)
 
-def vendi_azione(ticker, quantita):
+def vendi_azione(ticker, quantita, prezzo=None, data=None):
     ticker = ticker.upper()
 
-    if not os.path.exists(percorso_file):
-        return {"successo": False, "errore": "Nessun investimento registrato."}
+    if ticker not in investimenti or not investimenti[ticker]:
+        return {"successo": False, "errore": "Nessuna azione registrata per questo ticker."}
 
-    with open(percorso_file, "r") as f:
-        investimenti = json.load(f)
+    if prezzo is None:
+        info = recupera_info_ticker(ticker)
+        if not info:
+            return {"successo": False, "errore": "Impossibile recuperare il prezzo corrente."}
+        prezzo = info["prezzo"]
 
-    if ticker not in investimenti:
-        return {"successo": False, "errore": f"Non possiedi azioni di {ticker}."}
+    if data is None:
+        data = datetime.now().strftime("%Y-%m-%d")
+    else:
+        if isinstance(data, datetime):
+            data = data.strftime("%Y-%m-%d")
+        elif hasattr(data, "strftime"):
+            data = data.strftime("%Y-%m-%d")
+        elif isinstance(data, str):
+            pass
+        else:
+            return {"successo": False, "errore": "Formato data non valido."}
 
+    # Calcolo quantità posseduta
     storico = investimenti[ticker]
-    possedute = calcola_quantita_posseduta(storico)
+    quantita_posseduta = calcola_quantita_posseduta(storico)
+    if quantita > quantita_posseduta:
+        return {"successo": False, "errore": "Quantità non disponibile per la vendita."}
 
-    if quantita > possedute:
-        return {"successo": False, "errore": f"Hai solo {possedute} azioni di {ticker}."}
-
-    try:
-        info = yf.Ticker(ticker).info
-        prezzo_attuale = info.get("regularMarketPrice")
-        if prezzo_attuale is None:
-            raise ValueError("Prezzo non disponibile")
-    except Exception as e:
-        return {"successo": False, "errore": f"Errore nel recupero del prezzo: {e}"}
-
+    # Calcolo PMU (prezzo medio unitario)
     pmu = calcola_pmu(storico)
-    guadagno_per_azione = prezzo_attuale - pmu
+
+    guadagno_per_azione = prezzo - pmu
     guadagno_totale = guadagno_per_azione * quantita
 
     operazione = {
         "tipo": "vendita",
-        "data": datetime.now().strftime("%Y-%m-%d"),
+        "data": data,
         "quantita": quantita,
-        "prezzo_unitario": prezzo_attuale
+        "prezzo_unitario": prezzo
     }
 
     investimenti[ticker].append(operazione)
@@ -253,7 +305,7 @@ def vendi_azione(ticker, quantita):
         "dati": {
             "ticker": ticker,
             "quantita_venduta": quantita,
-            "prezzo_vendita": prezzo_attuale,
+            "prezzo_vendita": prezzo,
             "pmu": pmu,
             "guadagno_per_azione": guadagno_per_azione,
             "guadagno_totale": guadagno_totale
@@ -264,16 +316,17 @@ def apri_popup_vendita():
     popup = tk.Toplevel()
     popup.title("Vendi Azione")
 
-    larghezza = 250
-    altezza = 220
+    larghezza = 350
+    altezza = 300
     x = (popup.winfo_screenwidth() // 2) - (larghezza // 2)
     y = (popup.winfo_screenheight() // 2) - (altezza // 2)
     popup.geometry(f"{larghezza}x{altezza}+{x}+{y}")
     popup.resizable(False, False)
 
-    # Etichetta e campo per il ticker
+    # Etichetta e combobox per il ticker
     tk.Label(popup, text="Ticker:").grid(row=0, column=0, padx=10, pady=(15, 5), sticky="e")
-    entry_ticker = tk.Entry(popup, width=20)
+    ticker_posseduti = sorted([t for t in investimenti if calcola_quantita_posseduta(investimenti[t]) > 0])
+    entry_ticker = ttk.Combobox(popup, values=ticker_posseduti, state="readonly", width=18)
     entry_ticker.grid(row=0, column=1, padx=10, pady=(15, 5))
 
     # Etichetta e campo per la quantità
@@ -285,18 +338,42 @@ def apri_popup_vendita():
     lbl_quantita_posseduta = tk.Label(popup, text="Quantità posseduta: -", font=("Arial", 9, "italic"))
     lbl_quantita_posseduta.grid(row=2, column=0, columnspan=2, pady=(10, 5))
 
-    def aggiorna_quantita_posseduta(event=None):
+    entry_ticker.bind("<FocusOut>", lambda e: aggiorna_quantita_posseduta())
+
+    def aggiorna_quantita_posseduta():
         ticker = entry_ticker.get().upper()
         if ticker in investimenti:
             quantita = calcola_quantita_posseduta(investimenti[ticker])
-            lbl_quantita_posseduta.config(
-                text=f"Quantità posseduta: {quantita}"
-            )
+            lbl_quantita_posseduta.config(text=f"Quantità posseduta: {quantita}")
         else:
             lbl_quantita_posseduta.config(text="Ticker non trovato.")
 
-    entry_ticker.bind("<FocusOut>", aggiorna_quantita_posseduta)
+    # Checkbox "Usa prezzo attuale"
+    usa_prezzo_attuale = tk.BooleanVar(value=True)
+    check_prezzo_attuale = tk.Checkbutton(
+        popup,
+        text="Usa prezzo attuale",
+        variable=usa_prezzo_attuale,
+        command=lambda: toggle_campi_manual_price()
+    )
+    check_prezzo_attuale.grid(row=3, column=0, columnspan=2, pady=(10, 5))
 
+    # Campi per data e prezzo manuali
+    tk.Label(popup, text="Data (YYYY-MM-DD):").grid(row=4, column=0, padx=10, pady=5, sticky="e")
+    entry_data = tk.Entry(popup, width=20)
+    entry_data.grid(row=4, column=1, padx=10, pady=5)
+
+    tk.Label(popup, text="Prezzo unitario (€):").grid(row=5, column=0, padx=10, pady=5, sticky="e")
+    entry_prezzo = tk.Entry(popup, width=20)
+    entry_prezzo.grid(row=5, column=1, padx=10, pady=5)
+
+    # Funzione per abilitare/disabilitare i campi manuali
+    def toggle_campi_manual_price():
+        stato = "normal" if not usa_prezzo_attuale.get() else "disabled"
+        entry_prezzo.config(state=stato)
+        entry_data.config(state=stato)
+
+    toggle_campi_manual_price()
 
     def conferma_vendita():
         ticker = entry_ticker.get().strip().upper()
@@ -308,7 +385,17 @@ def apri_popup_vendita():
             messagebox.showerror("Errore", "Inserisci una quantità valida.")
             return
 
-        risultato = vendi_azione(ticker, quantita)
+        if usa_prezzo_attuale.get():
+            risultato = vendi_azione(ticker, quantita)
+        else:
+            try:
+                prezzo = float(entry_prezzo.get())
+                data = datetime.strptime(entry_data.get(), "%Y-%m-%d").date()
+            except ValueError:
+                messagebox.showerror("Errore", "Prezzo o data non validi.")
+                return
+            risultato = vendi_azione(ticker, quantita, prezzo=prezzo, data=data)
+
         if risultato["successo"]:
             dati = risultato["dati"]
             messagebox.showinfo(
@@ -322,7 +409,7 @@ def apri_popup_vendita():
         else:
             messagebox.showerror("Errore", risultato["errore"])
 
-    tk.Button(popup, text="Conferma", command=conferma_vendita).grid(row=3, column=0, columnspan=2, pady=10)
+    tk.Button(popup, text="Conferma", command=conferma_vendita).grid(row=6, column=0, columnspan=2, pady=10)
 
 def apri_finestra_investimenti():
     finestra = tk.Toplevel()
