@@ -39,7 +39,35 @@ def apri_popup_modifica_saldo(root, aggiorna_saldi_callback):
         popup.destroy()
         aggiorna_saldi_callback()
 
+    def azzera_tutti_i_conti():
+        conferma = messagebox.askyesno(
+            "Conferma Azzeramento",
+            "Sei sicuro di voler azzerare **tutti i conti**? Questa operazione è irreversibile.",
+            icon="warning"
+        )
+        if not conferma:
+            return
+
+        for conto in conti:
+            try:
+                modifica_saldo(conto, 0.0, aggiungi_transazione)
+            except Exception as e:
+                messagebox.showerror("Errore", f"Errore con il conto '{conto}': {str(e)}")
+
+        messagebox.showinfo("Fatto", "Tutti i conti sono stati azzerati.")
+        popup.destroy()
+        aggiorna_saldi_callback()
+
+    # Pulsante "Conferma"
     tk.Button(popup, text="Conferma", command=conferma).grid(row=2, column=0, columnspan=2, pady=10)
+
+    # Pulsante "Azzera tutti i conti"
+    btn_azzera = tk.Button(
+        popup, text="Azzera tutti i conti",
+        command=azzera_tutti_i_conti,
+        fg="white", bg="#cc4c4c", activebackground="#b33c3c"
+    )
+    btn_azzera.grid(row=3, column=0, columnspan=2, pady=(0, 10), ipadx=10)
 
 def apri_finestra_gestione_conti(root=None, aggiorna_saldi_callback=None):
     finestra = tk.Toplevel()
@@ -139,10 +167,16 @@ def mostra_transazioni(cont_transactions, titolo="Transazioni"):
         tree.column(col, width=100)
     tree.pack(fill=tk.BOTH, expand=True)
 
+    # Definisci i colori pastello per entrate e uscite
+    tree.tag_configure("entrata", background="#d5f5d5")  # verde pastello
+    tree.tag_configure("uscita", background="#f7d6d6")   # rosso pastello
+
     for tr in cont_transactions:
+        importo = tr["importo"]
+        tag = "entrata" if importo >= 0 else "uscita"
         tree.insert("", "end", values=(
-            tr["data"], tr["conto"], tr["categoria"], f'{tr["importo"]:.2f}', tr["descrizione"]
-        ))
+            tr["data"], tr["conto"], tr["categoria"], f'{importo:.2f}', tr["descrizione"]
+        ), tags=(tag,))
 
 def aggiungi_transazione_popup(root, conti):
     def aggiorna_campi(*args):
