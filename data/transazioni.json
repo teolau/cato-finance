@@ -96,5 +96,12 @@
         "importo": 15.0,
         "categoria": "test",
         "descrizione": "test"
+    },
+    {
+        "data": "2025-05-23",
+        "conto": "PayPal",
+        "importo": -23.0,
+        "categoria": "test",
+        "descrizione": "test"
     }
 ]
