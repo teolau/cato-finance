@@ -1,0 +1,98 @@
+[
+    {
+        "nome": "saldo",
+        "row": 0,
+        "column": 0,
+        "rowspan": 1,
+        "columnspan": 2,
+        "visible": true
+    },
+    {
+        "nome": "transazioni",
+        "row": 0,
+        "column": 2,
+        "rowspan": 1,
+        "columnspan": 2,
+        "visible": true
+    },
+    {
+        "nome": "investimenti",
+        "row": 1,
+        "column": 0,
+        "rowspan": 1,
+        "columnspan": 3,
+        "visible": true
+    },
+    {
+        "nome": "bilancio",
+        "row": 2,
+        "column": 0,
+        "rowspan": 1,
+        "columnspan": 1,
+        "visible": true
+    },
+    {
+        "nome": "obiettivi",
+        "row": 2,
+        "column": 1,
+        "rowspan": 1,
+        "columnspan": 2,
+        "visible": true
+    },
+    {
+        "nome": "watchlist",
+        "row": 1,
+        "column": 3,
+        "rowspan": 2,
+        "columnspan": 1,
+        "visible": true
+    },
+    {
+        "nome": "scontrini",
+        "row": 3,
+        "column": 0,
+        "rowspan": 1,
+        "columnspan": 2,
+        "visible": false
+    },
+    {
+        "nome": "statistiche_spese",
+        "row": 3,
+        "column": 2,
+        "rowspan": 1,
+        "columnspan": 2,
+        "visible": false
+    },
+    {
+        "nome": "prossime_spese",
+        "row": 4,
+        "column": 0,
+        "rowspan": 1,
+        "columnspan": 2,
+        "visible": false
+    },
+    {
+        "nome": "calendario",
+        "row": 4,
+        "column": 2,
+        "rowspan": 1,
+        "columnspan": 2,
+        "visible": false
+    },
+    {
+        "nome": "storico_saldo",
+        "row": 5,
+        "column": 0,
+        "rowspan": 1,
+        "columnspan": 2,
+        "visible": false
+    },
+    {
+        "nome": "crediti_debiti",
+        "row": 5,
+        "column": 2,
+        "rowspan": 1,
+        "columnspan": 2,
+        "visible": false
+    }
+]

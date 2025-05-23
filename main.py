@@ -1,89 +1,248 @@
-import tkinter as tk
-from gestione_conti import apri_finestra_gestione_conti
-from utils.sfondo import scegli_sfondo_casuale, ridimensiona_sfondo
-from gestione_transazioni import mostra_transazioni, aggiungi_transazione_popup
-from gestione_investimenti import apri_finestra_investimenti
+import ttkbootstrap as ttkb
+from ttkbootstrap.constants import *
 from storage import carica_conti, carica_transazioni
+import random
+from datetime import datetime
+import json
+
+def apri_dashboard(main_frame):
+    for widget in main_frame.winfo_children():
+        widget.destroy()
+
+    titolo = ttkb.Label(main_frame, text="Dashboard", font=("Segoe UI", 16, "bold"))
+    titolo.pack(pady=(10, 20))
+
+    # Container widget principale con grid
+    widget_frame = ttkb.Frame(main_frame)
+    widget_frame.pack(fill=BOTH, expand=True, padx=20, pady=10)
+
+    for i in range(4):
+        widget_frame.columnconfigure(i, weight=1)
+        widget_frame.rowconfigure(i, weight=1)
+
+    def widget_saldo():
+        frame = ttkb.LabelFrame(widget_frame, text="Saldo Totale", padding=10)
+        conti = carica_conti()
+        saldo_totale = sum(conti.values())
+        ttkb.Label(frame, text=f"€ {saldo_totale:.2f}", font=("Segoe UI", 16)).pack()
+        for nome, saldo in conti.items():
+            ttkb.Label(frame, text=f"{nome}: € {saldo:.2f}", font=("Segoe UI", 9), foreground="gray").pack(anchor="w", padx=20)
+        return frame
+
+    def widget_transazioni():
+        frame = ttkb.LabelFrame(widget_frame, text="Ultime Transazioni", padding=10)
+        transazioni = carica_transazioni()
+        for tr in sorted(transazioni, key=lambda x: x["data"], reverse=True)[:5]:
+            riga = f"{tr['data']} | {tr['categoria']} | {tr['importo']} €"
+            colore = "green" if tr["importo"] >= 0 else "#bb4444"
+            ttkb.Label(frame, text=riga, font=("Segoe UI", 10), foreground=colore).pack(anchor="w")
+        return frame
+
+    def widget_investimenti():
+        frame = ttkb.LabelFrame(widget_frame, text="Valore Portafoglio Investimenti", padding=10)
+        ttkb.Label(frame, text="[Grafico qui]", font=("Segoe UI", 12, "italic"), foreground="gray").pack()
+        return frame
+
+    def widget_bilancio():
+        frame = ttkb.LabelFrame(widget_frame, text="Bilancio Mensile", padding=10)
+        transazioni = carica_transazioni()
+        transazioni_mese = [t for t in transazioni if t["data"].startswith(datetime.today().strftime("%Y-%m"))]
+        entrate = sum(t["importo"] for t in transazioni_mese if t["importo"] > 0)
+        uscite = -sum(t["importo"] for t in transazioni_mese if t["importo"] < 0)
+        bilancio = entrate - uscite
+        ttkb.Label(frame, text=f"Entrate: € {entrate:.2f}", font=("Segoe UI", 10)).pack(anchor="w")
+        ttkb.Label(frame, text=f"Uscite: € {uscite:.2f}", font=("Segoe UI", 10)).pack(anchor="w")
+        ttkb.Label(frame, text=f"Bilancio: € {bilancio:.2f}", font=("Segoe UI", 12, "bold"),
+                   foreground=("green" if bilancio >= 0 else "red")).pack(anchor="w", pady=(5, 0))
+        return frame
+
+    def widget_goal():
+        frame = ttkb.LabelFrame(widget_frame, text="Obiettivi di Risparmio", padding=10)
+        ttkb.Label(frame, text="Vacanza Tokyo: 2200 / 3000 €", font=("Segoe UI", 10)).pack(anchor="w")
+        ttkb.Progressbar(frame, value=2200 / 3000 * 100).pack(fill=X, pady=5)
+        ttkb.Label(frame, text="Nuovo PC: 500 / 1500 €", font=("Segoe UI", 10)).pack(anchor="w")
+        ttkb.Progressbar(frame, value=500 / 1500 * 100).pack(fill=X, pady=5)
+        return frame
+
+    def widget_watchlist():
+        frame = ttkb.LabelFrame(widget_frame, text="Watchlist Azioni", padding=10)
+        titoli = [
+            {"ticker": "AAPL", "prezzo": 185.20, "var": +1.25},
+            {"ticker": "TSLA", "prezzo": 172.55, "var": -2.14},
+            {"ticker": "MSFT", "prezzo": 317.30, "var": +0.65},
+            {"ticker": "NVDA", "prezzo": 872.14, "var": -0.78},
+            {"ticker": "ENI.MI", "prezzo": 14.67, "var": +0.42}
+        ]
+        for t in titoli:
+            colore = "green" if t["var"] >= 0 else "#bb4444"
+            riga = f"{t['ticker']}: € {t['prezzo']:.2f} ({t['var']:+.2f}%)"
+            ttkb.Label(frame, text=riga, font=("Segoe UI", 10), foreground=colore).pack(anchor="w")
+        return frame
+
+    def widget_scontrini():
+        frame = ttkb.LabelFrame(widget_frame, text="Scansione Scontrini", padding=10)
+        ttkb.Label(frame, text="[Carica uno scontrino per analizzare i dati]", font=("Segoe UI", 10),
+                   foreground="gray").pack(anchor="center")
+        return frame
+
+    def widget_statistiche_spese():
+        frame = ttkb.LabelFrame(widget_frame, text="Grafico Spese per Categoria", padding=10)
+        ttkb.Label(frame, text="[Grafico a torta delle spese mensili qui]", font=("Segoe UI", 10, "italic"),
+                   foreground="gray").pack(anchor="center")
+        return frame
+
+    def widget_prossime_spese():
+        frame = ttkb.LabelFrame(widget_frame, text="Prossime Spese Ricorrenti", padding=10)
+        ttkb.Label(frame, text="[Visualizzazione delle prossime spese ricorrenti]", font=("Segoe UI", 10),
+                   foreground="gray").pack(anchor="center")
+        return frame
+
+    def widget_calendario():
+        frame = ttkb.LabelFrame(widget_frame, text="Calendario Finanziario", padding=10)
+        ttkb.Label(frame, text="[Eventi e scadenze finanziarie nel calendario]", font=("Segoe UI", 10),
+                   foreground="gray").pack(anchor="center")
+        return frame
+
+    def widget_storico_saldo():
+        frame = ttkb.LabelFrame(widget_frame, text="Storico del Saldo", padding=10)
+        ttkb.Label(frame, text="[Grafico dell'evoluzione del saldo nel tempo]", font=("Segoe UI", 10),
+                   foreground="gray").pack(anchor="center")
+        return frame
+
+    def widget_crediti_debiti():
+        frame = ttkb.LabelFrame(widget_frame, text="Crediti e Debiti", padding=10)
+        ttkb.Label(frame, text="[Elenco crediti e debiti con importi e scadenze]", font=("Segoe UI", 10),
+                   foreground="gray").pack(anchor="center")
+        return frame
+
+    widget_map = {
+        "saldo": widget_saldo,
+        "transazioni": widget_transazioni,
+        "investimenti": widget_investimenti,
+        "bilancio": widget_bilancio,
+        "obiettivi": widget_goal,
+        "watchlist": widget_watchlist,
+        "scontrini": widget_scontrini,
+        "statistiche_spese": widget_statistiche_spese,
+        "prossime_spese": widget_prossime_spese,
+        "calendario": widget_calendario,
+        "storico_saldo": widget_storico_saldo,
+        "crediti_debiti": widget_crediti_debiti
+    }
+
+    try:
+        with open("data/dashboard_config.json", "r") as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        config = []
+
+    for w in config:
+        if w.get("visible", False) and w["nome"] in widget_map:
+            frame = widget_map[w["nome"]]()
+            frame.grid(
+                row=w["row"],
+                column=w["column"],
+                rowspan=w.get("rowspan", 1),
+                columnspan=w.get("columnspan", 1),
+                padx=5, pady=5,
+                sticky="nsew"
+            )
+
+    def apri_configuratore():
+        print("TODO: apri configuratore dashboard")
+
+    btn_config = ttkb.Button(main_frame, text="⚙️", bootstyle="secondary")
+    btn_config.place(relx=1.0, rely=0.0, anchor="ne", x=-10, y=15)
+    btn_config.config(command=apri_configuratore)
 
 
 
+def apri_conti(main_frame):
+    for widget in main_frame.winfo_children():
+        widget.destroy()
+    ttkb.Label(main_frame, text="Sezione Conti", font=("Segoe UI", 16, "bold")).pack(pady=20)
 
-def mostra_saldi(frame, conti):
-    for widget in frame.winfo_children():
-        widget.destroy()  # pulisce il frame per aggiornare
+def apri_transazioni(main_frame):
+    for widget in main_frame.winfo_children():
+        widget.destroy()
+    ttkb.Label(main_frame, text="Storico Transazioni", font=("Segoe UI", 16, "bold")).pack(pady=20)
 
-    for nome, saldo in conti.items():
-        testo = f"{nome}: € {saldo:.2f}"
-        label = tk.Label(frame, text=testo, font=("Arial", 14))
-        label.pack(anchor="w")
+def apri_investimenti(main_frame):
+    for widget in main_frame.winfo_children():
+        widget.destroy()
+    ttkb.Label(main_frame, text="Portafoglio Investimenti", font=("Segoe UI", 16, "bold")).pack(pady=20)
 
-def centra_finestra(finestra, larghezza, altezza):
-    finestra.update_idletasks()
-    screen_width = finestra.winfo_screenwidth()
-    screen_height = finestra.winfo_screenheight()
-    x = (screen_width - larghezza) // 2
-    y = (screen_height - altezza) // 2
-    finestra.geometry(f"{larghezza}x{altezza}+{x}+{y}")
+def saluto_random(nome="Matteo"):
+    ora = datetime.now().hour
+
+    if 5 <= ora < 12:
+        saluto = "Buongiorno"
+    elif 12 <= ora < 18:
+        saluto = "Buon pomeriggio"
+    elif 18 <= ora < 22:
+        saluto = "Buonasera"
+    else:
+        saluto = "Ciao"
+
+    return f"{saluto}, {nome}!"
 
 def main():
-    root = tk.Tk()
-    root.title("Cato Finance :)")
+    app = ttkb.Window(themename="superhero")
+    app.title("Cato Finance")
+    app.geometry("1280x720")
+    app.minsize(800, 500)
 
-    larghezza = 400
-    altezza = 400
-    centra_finestra(root, larghezza, altezza)
-    root.resizable(False, False)        #todo: quando lo sfondo diventa responsive eliminare questa riga
+    # Centra la finestra sullo schermo
+    app.update_idletasks()
+    width = app.winfo_width()
+    height = app.winfo_height()
+    x = (app.winfo_screenwidth() // 2) - (width // 2)
+    y = (app.winfo_screenheight() // 2) - (height // 2)
+    app.geometry(f"{width}x{height}+{x}+{y}")
 
-    conti = carica_conti()
-    transazioni = carica_transazioni()
+    # Layout principale con grid
+    app.columnconfigure(0, weight=1, minsize=350, uniform='a')
+    app.columnconfigure(1, weight=5, uniform='a')  # main
+    app.rowconfigure(0, weight=1)
 
-    # Carica sfondo
-    root.sfondo_path = scegli_sfondo_casuale("sfondi")
-    root.sfondo_img = ridimensiona_sfondo(root.sfondo_path, (larghezza, altezza))
+    sidebar = ttkb.Frame(app, padding=(15, 10), bootstyle="dark")
+    sidebar.grid(row=0, column=0, sticky="nswe")
 
-    #label sfondo
-    root.sfondo_label = tk.Label(root, image=root.sfondo_img)
-    root.sfondo_label.image = root.sfondo_img
-    root.sfondo_label.place(x=0, y=0, relwidth=1, relheight=1)
-    root.sfondo_label.lower()  # Manda lo sfondo dietro
+    main_frame = ttkb.Frame(app)
+    main_frame.grid(row=0, column=1, sticky="nswe")
 
-    # todo: Aggiorna sfondo al resize, per ora con questa funzione lo sfondo scompare all'apertura (problema con "root."?)
-#    def aggiorna_sfondo(event):
-#        nuovo = ridimensiona_sfondo(root.sfondo_path, (event.width, event.height))
-#        root.sfondo_label.configure(image=nuovo)
-#        root.sfondo_label.image = nuovo
+    # Sidebar - Saluto e navigazione
+    ttkb.Label(sidebar, text=saluto_random(), font=("Segoe UI", 12)).pack(pady=(20, 30))
 
-#    root.bind("<Configure>", aggiorna_sfondo)
+    ttkb.Button(sidebar, text="🏠 Dashboard", bootstyle=SECONDARY, command=lambda: apri_dashboard(main_frame)).pack(
+        fill=X, padx=10, pady=5)
+    ttkb.Button(sidebar, text="💼 Conti", bootstyle=SECONDARY, command=lambda: apri_conti(main_frame)).pack(fill=X,
+                                                                                                           padx=10,
+                                                                                                           pady=5)
+    ttkb.Button(sidebar, text="📜 Transazioni", bootstyle=SECONDARY, command=lambda: apri_transazioni(main_frame)).pack(
+        fill=X, padx=10, pady=5)
+    ttkb.Button(sidebar, text="📈 Investimenti", bootstyle=SECONDARY,
+                command=lambda: apri_investimenti(main_frame)).pack(fill=X, padx=10, pady=5)
+    ttkb.Button(sidebar, text="⚙️ Impostazioni", bootstyle=SECONDARY).pack(fill=X, padx=10, pady=5)
 
+    # Mostra la dashboard all'avvio
+    apri_dashboard(main_frame)
 
-    tk.Label(root, text="Cato Finance :)", font=("Arial", 16), bg="white").pack(pady=10)
+        # Pulsante flottante +
+        # Pulsante flottante con menu
+    def mostra_menu(event):
+        menu = ttkb.Menu(app, tearoff=0)
+        menu.add_command(label="Aggiungi Transazione", command=lambda: print("Transazione"))
+        menu.add_command(label="Aggiungi Obiettivo di Risparmio", command=lambda: print("Obiettivo"))
+        menu.add_separator()
+        menu.add_command(label="Altro...", command=lambda: print("Altro"))
+        menu.tk_popup(event.x_root, event.y_root)
 
-    frame_conti = tk.Frame(root, bg="white")
-    frame_conti.pack(pady=15)
+    btn_plus = ttkb.Button(app, text="➕", bootstyle="success", width=3)
+    btn_plus.place(relx=0.97, rely=0.93, anchor="center")
+    btn_plus.bind("<Button-1>", mostra_menu)
 
-    btn_gestisci_investimenti = tk.Button(root, text="Gestisci Investimenti", bg="lightblue",
-                                          command=apri_finestra_investimenti)
-    btn_gestisci_investimenti.pack(pady=(0, 10))
-
-    for nome_conto in conti:
-        if nome_conto == "Investimenti":
-            continue
-        tk.Button(frame_conti, text=f"{nome_conto} ({conti[nome_conto]:.2f} €)",
-                  command=lambda c=nome_conto: mostra_transazioni([tr for tr in transazioni if tr["conto"] == c],
-                                                                  f"Transazioni - {c}")).pack(pady=5)
-
-    btn_tutte = tk.Button(root, text="📜 Visualizza tutte le transazioni",
-                          command=lambda: mostra_transazioni(transazioni, "Tutte le transazioni"))
-    btn_tutte.pack(pady=5)
-
-    btn_aggiungi = tk.Button(root, text="➕ Aggiungi transazione",
-                             command=lambda: aggiungi_transazione_popup(root, conti))
-    btn_aggiungi.pack(pady=5)
-
-    tk.Button(root, text="💼 Gestione Conti",
-              command=lambda: apri_finestra_gestione_conti(root, lambda: print("TODO aggiorna saldi"))).pack(pady=5)
-
-    root.mainloop()
+    app.mainloop()
 
 
 if __name__ == "__main__":
