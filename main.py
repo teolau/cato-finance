@@ -1,11 +1,11 @@
 import ttkbootstrap as ttkb
 from ttkbootstrap.constants import *
-from storage import carica_conti, carica_transazioni  # Assicurati che questo file esista e funzioni
+from storage import carica_conti, carica_transazioni  # Assicurati che questo file/funzioni esistano
 import tkinter as tk
-from tkinter import messagebox  # Importato specificamente
+from tkinter import messagebox
 from datetime import datetime
 import json
-import os  # Importato per os.path e os.makedirs
+import os
 
 # --- Costanti e Configurazioni Globali ---
 DATA_DIR = "data"
@@ -16,726 +16,572 @@ INITIAL_GRID_ROWS = 6
 INITIAL_GRID_COLS = 6
 
 WIDGETS = [
-    {"nome": "saldo", "label": "Saldo Totale", "size": (3, 2)},  # (cols, rows)
-    {"nome": "transazioni", "label": "Ultime Transazioni", "size": (3, 2)},
-    {"nome": "investimenti", "label": "Portafoglio Investimenti", "size": (4, 2)},
-    {"nome": "bilancio", "label": "Bilancio Mensile", "size": (2, 2)},
-    {"nome": "obiettivi", "label": "Obiettivi Risparmio", "size": (2, 2)},
-    {"nome": "watchlist", "label": "Watchlist Azioni", "size": (2, 4)},
-    {"nome": "scontrini", "label": "Scansione Scontrini", "size": (2, 1)},
-    {"nome": "statistiche_spese", "label": "Statistiche Spese", "size": (2, 1)},
-    {"nome": "prossime_spese", "label": "Prossime Spese", "size": (2, 1)},
-    {"nome": "calendario", "label": "Calendario Finanziario", "size": (2, 1)},
-    {"nome": "storico_saldo", "label": "Storico Saldo", "size": (2, 1)},
-    {"nome": "crediti_debiti", "label": "Crediti e Debiti", "size": (2, 1)}
+    {"nome": "saldo", "label": "Saldo Totale", "size": (3, 2), "factory": "widget_saldo"},
+    {"nome": "transazioni", "label": "Ultime Transazioni", "size": (3, 2), "factory": "widget_transazioni"},
+    {"nome": "investimenti", "label": "Portafoglio Investimenti", "size": (4, 2), "factory": "widget_investimenti"},
+    {"nome": "bilancio", "label": "Bilancio Mensile", "size": (2, 2), "factory": "widget_bilancio"},
+    {"nome": "obiettivi", "label": "Obiettivi Risparmio", "size": (2, 2), "factory": "widget_goal"},
+    {"nome": "watchlist", "label": "Watchlist Azioni", "size": (2, 4), "factory": "widget_watchlist"},
+    {"nome": "scontrini", "label": "Scansione Scontrini", "size": (2, 1), "factory": "widget_scontrini_placeholder"},
+    {"nome": "statistiche_spese", "label": "Statistiche Spese", "size": (2, 1),
+     "factory": "widget_statistiche_placeholder"},
+    {"nome": "prossime_spese", "label": "Prossime Spese", "size": (2, 1),
+     "factory": "widget_prossime_spese_placeholder"},
+    {"nome": "calendario", "label": "Calendario Finanziario", "size": (2, 1),
+     "factory": "widget_calendario_placeholder"},
+    {"nome": "storico_saldo", "label": "Storico Saldo", "size": (2, 1), "factory": "widget_storico_saldo_placeholder"},
+    {"nome": "crediti_debiti", "label": "Crediti e Debiti", "size": (2, 1),
+     "factory": "widget_crediti_debiti_placeholder"},
 ]
 
-
-# Nota: Ho invertito size in WIDGETS per coerenza con (col, row) come nel tuo codice originale,
-# ma la classe ConfigDashboardWindow internamente si aspetta (cols, rows) per "size".
-# Ho aggiornato l'uso di widget_info["size"] in ConfigDashboardWindow per riflettere questo.
-# In WIDGETS: "size": (column_span, row_span)
-
-# --- Classe ConfigDashboardWindow (Modificata e Integrata) ---
-class ConfigDashboardWindow:
-    def __init__(self, master, refresh_callback, initial_grid_rows, initial_grid_cols, widgets_list, config_file_path,
-                 default_config_file_path):
-        self.master_window = master  # La finestra radice dell'app, non il main_frame
-        self.refresh_callback = refresh_callback
-        self.WIDGETS = widgets_list
-        self.CONFIG_PATH = config_file_path
-        self.DEFAULT_CONFIG_PATH = default_config_file_path
-
-        self.window = ttkb.Toplevel(self.master_window)
-        self.window.title("Configura Dashboard")
-        self.window.geometry("1200x800")  # Aumentato un po'
-        self.window.transient(self.master_window)
-        self.window.grab_set()
-        self.window.protocol("WM_DELETE_WINDOW", self._on_close)  # Gestisce la chiusura dalla X
-
-        self.selected_widget = None
-
-        self.sidebar = ttkb.Frame(self.window, padding=10)
-        self.sidebar.grid(row=0, column=0, sticky="ns")
-
-        self.grid_area_container = ttkb.Frame(self.window, padding=10)  # Contenitore per scrollbar se necessario
-        self.grid_area_container.grid(row=0, column=1, sticky="nsew")
-        self.grid_area_container.rowconfigure(0, weight=1)
-        self.grid_area_container.columnconfigure(0, weight=1)
-
-        self.grid_area = ttkb.Frame(self.grid_area_container)  # Frame effettivo per la griglia
-        self.grid_area.grid(row=0, column=0, sticky="nsew")
-
-        self.window.columnconfigure(1, weight=1)
-        self.window.rowconfigure(0, weight=1)
-
-        self.current_grid_rows = tk.IntVar(value=initial_grid_rows)
-        self.current_grid_cols = tk.IntVar(value=initial_grid_cols)
-        self._initialize_grid_slots()
-
-        widget_list_frame = ttkb.LabelFrame(self.sidebar, text="Widget Disponibili", padding=10)
-        widget_list_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
-
-        self.widget_buttons = {}
-        for i, widget_info in enumerate(self.WIDGETS):
-            btn = ttkb.Button(widget_list_frame, text=widget_info["label"], width=25,
-                              command=lambda w=widget_info: self.select_widget(w))
-            btn.grid(row=i, column=0, sticky="ew", pady=2)
-            self.widget_buttons[widget_info["nome"]] = btn
-
-        grid_config_frame = ttkb.LabelFrame(self.sidebar, text="Dimensioni Griglia", padding=10)
-        grid_config_frame.grid(row=1, column=0, sticky="ew", pady=10)
-        ttkb.Label(grid_config_frame, text="Righe:").grid(row=0, column=0, sticky="w", padx=(0, 5))
-        self.rows_entry = ttkb.Entry(grid_config_frame, textvariable=self.current_grid_rows, width=5)
-        self.rows_entry.grid(row=0, column=1)
-        ttkb.Label(grid_config_frame, text="Colonne:").grid(row=1, column=0, sticky="w", padx=(0, 5), pady=(5, 0))
-        self.cols_entry = ttkb.Entry(grid_config_frame, textvariable=self.current_grid_cols, width=5)
-        self.cols_entry.grid(row=1, column=1, pady=(5, 0))
-        ttkb.Button(grid_config_frame, text="Applica Dimensioni", command=self.update_grid_dimensions,
-                    bootstyle=INFO).grid(row=2, column=0, columnspan=2, pady=(10, 0), sticky="ew")
-
-        action_buttons_frame = ttkb.Frame(self.sidebar, padding=(0, 10))  # Rimosso padding 20
-        action_buttons_frame.grid(row=2, column=0, sticky="sew", pady=(10, 0))
-        self.sidebar.rowconfigure(2, weight=1)
-
-        save_btn = ttkb.Button(action_buttons_frame, text="Salva e Chiudi", bootstyle=SUCCESS,
-                               command=self.save_config_and_close)
-        save_btn.pack(fill=X, pady=5)
-
-        apply_btn = ttkb.Button(action_buttons_frame, text="Applica Modifiche", bootstyle=PRIMARY,
-                                command=self.apply_changes_no_close)  # Nuovo pulsante
-        apply_btn.pack(fill=X, pady=5)
-
-        reset_btn = ttkb.Button(action_buttons_frame, text="Ripristina Default", bootstyle=DANGER,
-                                command=self.reset_default_config)
-        reset_btn.pack(fill=X, pady=5)
-
-        cancel_btn = ttkb.Button(action_buttons_frame, text="Annulla", bootstyle=LIGHT,
-                                 command=self._on_close)
-        cancel_btn.pack(fill=X, pady=(5, 0))
-
-        self.load_config_and_render()
-        self.window.after(100, lambda: self.window.lift())  # Assicura che sia in primo piano
-
-    def _on_close(self):
-        # Qui potresti chiedere se salvare le modifiche non salvate
-        self.window.grab_release()
-        self.window.destroy()
-
-    def _initialize_grid_slots(self):
-        rows = self.current_grid_rows.get()
-        cols = self.current_grid_cols.get()
-        self.grid_slots = [[None for _ in range(cols)] for _ in range(rows)]
-
-    def update_grid_dimensions(self):
-        try:
-            new_rows = int(self.rows_entry.get())
-            new_cols = int(self.cols_entry.get())
-        except ValueError:
-            messagebox.showerror("Errore", "Righe e colonne devono essere numeri interi.", parent=self.window)
-            return
-
-        if new_rows <= 0 or new_cols <= 0:
-            messagebox.showerror("Errore", "Righe e colonne devono essere maggiori di zero.", parent=self.window)
-            self.current_grid_rows.set(len(self.grid_slots))
-            self.current_grid_cols.set(len(self.grid_slots[0]) if self.grid_slots else 1)
-            return
-
-        placed_widgets_config = []
-        added_names = set()
-        for r_idx, row_list in enumerate(self.grid_slots):
-            for c_idx, slot_name in enumerate(row_list):
-                if slot_name and slot_name != "X" and slot_name not in added_names:
-                    widget_info = next((w for w in self.WIDGETS if w["nome"] == slot_name), None)
-                    if widget_info:
-                        placed_widgets_config.append({
-                            "nome": slot_name, "row": r_idx, "column": c_idx,
-                            "size_cols": widget_info["size"][0], "size_rows": widget_info["size"][1]
-                        })
-                        added_names.add(slot_name)
-
-        self.current_grid_rows.set(new_rows)  # Aggiorna le IntVar solo dopo la validazione
-        self.current_grid_cols.set(new_cols)
-        self._initialize_grid_slots()
-
-        for config_item in placed_widgets_config:
-            w_info = next((w for w in self.WIDGETS if w["nome"] == config_item["nome"]), None)
-            if w_info:
-                cols_needed, rows_needed = w_info["size"]
-                if config_item["row"] + rows_needed <= new_rows and config_item["column"] + cols_needed <= new_cols:
-                    can_place = True
-                    for r_check in range(config_item["row"], config_item["row"] + rows_needed):
-                        for c_check in range(config_item["column"], config_item["column"] + cols_needed):
-                            if self.grid_slots[r_check][c_check] is not None:
-                                can_place = False;
-                                break
-                        if not can_place: break
-                    if can_place:
-                        self._internal_place_widget_data(w_info, config_item["row"], config_item["column"])
-
-        self.render_grid_placeholders_and_widgets()
-
-    def select_widget(self, widget_info):
-        self.selected_widget = widget_info
-
-    def render_grid_placeholders_and_widgets(self):
-        for widget_tk in self.grid_area.winfo_children():
-            widget_tk.destroy()
-
-        rows = self.current_grid_rows.get()
-        cols = self.current_grid_cols.get()
-
-        for r in range(rows):
-            self.grid_area.rowconfigure(r, weight=1, uniform="row_config")
-        for c in range(cols):
-            self.grid_area.columnconfigure(c, weight=1, uniform="col_config")
-
-        # Disegna prima i placeholder
-        for r in range(rows):
-            for c in range(cols):
-                # Disegna un placeholder solo se la cella è completamente vuota (non "X")
-                # e non è l'inizio di un widget già piazzato
-                if self.grid_slots[r][c] is None:
-                    frame = ttkb.Frame(self.grid_area, relief=RAISED, borderwidth=1)
-                    frame.grid(row=r, column=c, sticky="nsew", padx=1, pady=1)
-                    frame.bind("<Button-1>", lambda e, row=r, col=c: self.handle_grid_click(row, col))
-                    # ttkb.Label(frame, text=f"{r},{c}").pack(expand=True) # Debug
-
-        # Poi disegna i widget effettivi sopra/al posto dei placeholder
-        drawn_widgets = set()
-        for r in range(rows):
-            for c in range(cols):
-                widget_name = self.grid_slots[r][c]
-                if widget_name and widget_name != "X" and widget_name not in drawn_widgets:
-                    widget_info = next((w for w in self.WIDGETS if w["nome"] == widget_name), None)
-                    if widget_info:
-                        self._draw_widget_on_grid(widget_info, r, c)
-                        drawn_widgets.add(widget_name)
-
-    def handle_grid_click(self, row, col):
-        if self.selected_widget:
-            self.attempt_place_widget(self.selected_widget, row, col)
-            self.selected_widget = None
-        else:  # Click su cella vuota, o su un widget (gestito dal bind del widget)
-            pass
-
-    def _internal_place_widget_data(self, widget_info, row, col):
-        cols_span, rows_span = widget_info["size"]
-        for r_offset in range(rows_span):
-            for c_offset in range(cols_span):
-                current_r, current_c = row + r_offset, col + c_offset
-                self.grid_slots[current_r][current_c] = widget_info["nome"] if (
-                            r_offset == 0 and c_offset == 0) else "X"
-
-    def attempt_place_widget(self, widget_info, row, col):
-        if not widget_info: return
-
-        cols_span, rows_span = widget_info["size"]
-        grid_r_dim = self.current_grid_rows.get()
-        grid_c_dim = self.current_grid_cols.get()
-
-        is_widget_placed = any(
-            self.grid_slots[r][c] == widget_info["nome"]
-            for r in range(grid_r_dim) for c in range(grid_c_dim)
-        )
-        if is_widget_placed:
-            messagebox.showwarning("Attenzione", f"Il widget '{widget_info['label']}' è già presente.",
-                                   parent=self.window)
-            return
-
-        if row + rows_span > grid_r_dim or col + cols_span > grid_c_dim:
-            messagebox.showerror("Errore", "Il widget non entra da questa posizione.", parent=self.window)
-            return
-
-        for r_offset in range(rows_span):
-            for c_offset in range(cols_span):
-                if self.grid_slots[row + r_offset][col + c_offset] is not None:
-                    messagebox.showerror("Errore", "Spazio non sufficiente.", parent=self.window)
-                    return
-
-        self._internal_place_widget_data(widget_info, row, col)
-        self.render_grid_placeholders_and_widgets()
-
-    def remove_widget_at_cell(self, clicked_row, clicked_col):
-        widget_name_in_cell = self.grid_slots[clicked_row][clicked_col]
-        if not widget_name_in_cell: return
-
-        origin_row, origin_col = -1, -1
-
-        if widget_name_in_cell == "X":
-            # Trova la cella d'origine (brute force, migliorabile)
-            found_origin = False
-            for r_scan in range(self.current_grid_rows.get()):
-                for c_scan in range(self.current_grid_cols.get()):
-                    slot_content = self.grid_slots[r_scan][c_scan]
-                    if slot_content and slot_content != "X":
-                        w_info_scan = next((w for w in self.WIDGETS if w["nome"] == slot_content), None)
-                        if w_info_scan:
-                            r_span, c_span = w_info_scan["size"][1], w_info_scan["size"][0]
-                            if r_scan <= clicked_row < r_scan + r_span and \
-                                    c_scan <= clicked_col < c_scan + c_span:
-                                widget_name_in_cell = slot_content
-                                origin_row, origin_col = r_scan, c_scan
-                                found_origin = True;
-                                break
-                if found_origin: break
-            if not found_origin: return
-        else:
-            origin_row, origin_col = clicked_row, clicked_col
-
-        widget_info_to_remove = next((w for w in self.WIDGETS if w["nome"] == widget_name_in_cell), None)
-        if not widget_info_to_remove: return
-
-        cols_span, rows_span = widget_info_to_remove["size"]
-        for r_offset in range(rows_span):
-            for c_offset in range(cols_span):
-                current_r, current_c = origin_row + r_offset, origin_col + c_offset
-                if 0 <= current_r < self.current_grid_rows.get() and \
-                        0 <= current_c < self.current_grid_cols.get():
-                    self.grid_slots[current_r][current_c] = None
-
-        self.render_grid_placeholders_and_widgets()
-
-    def _draw_widget_on_grid(self, widget_info, row, col):
-        cols_span, rows_span = widget_info["size"]
-
-        widget_frame = ttkb.Frame(self.grid_area, relief=SOLID, borderwidth=1)  # Stile più visibile
-        widget_frame.grid(row=row, column=col, rowspan=rows_span, columnspan=cols_span,
-                          sticky="nsew", padx=1, pady=1)
-
-        # Aggiungi un piccolo padding interno e centra il testo
-        inner_frame = ttkb.Frame(widget_frame, padding=5)
-        inner_frame.pack(expand=True, fill=BOTH)
-
-        label = ttkb.Label(inner_frame, text=widget_info["label"], anchor="center")
-        label.pack(expand=True, fill=BOTH)
-
-        # Bind per la rimozione, assicurandosi che passi le coordinate corrette (quelle di origine)
-        widget_frame.bind("<Button-3>", lambda e, r=row, c=col: self.remove_widget_at_cell(r, c))
-        inner_frame.bind("<Button-3>", lambda e, r=row, c=col: self.remove_widget_at_cell(r, c))  # Anche su inner
-        label.bind("<Button-3>", lambda e, r=row, c=col: self.remove_widget_at_cell(r, c))
-
-    def _get_current_config_data(self):
-        config_to_save = {
-            "grid_rows": self.current_grid_rows.get(),
-            "grid_cols": self.current_grid_cols.get(),
-            "widgets": []
-        }
-        added_names = set()
-        for r in range(self.current_grid_rows.get()):
-            for c in range(self.current_grid_cols.get()):
-                widget_name = self.grid_slots[r][c]
-                if widget_name and widget_name != "X" and widget_name not in added_names:
-                    widget_info = next((w for w in self.WIDGETS if w["nome"] == widget_name), None)
-                    if widget_info:
-                        config_to_save["widgets"].append({
-                            "nome": widget_name, "visible": True, "row": r, "column": c,
-                            "rowspan": widget_info["size"][1], "columnspan": widget_info["size"][0]
-                        })
-                        added_names.add(widget_name)
-        return config_to_save
-
-    def _save_to_file(self, config_data):
-        try:
-            os.makedirs(os.path.dirname(self.CONFIG_PATH), exist_ok=True)
-            with open(self.CONFIG_PATH, "w") as f:
-                json.dump(config_data, f, indent=4)
-            return True
-        except Exception as e:
-            messagebox.showerror("Errore Salvataggio", f"Impossibile salvare la configurazione:\n{e}",
-                                 parent=self.window)
-            return False
-
-    def apply_changes_no_close(self):
-        current_config = self._get_current_config_data()
-        if self._save_to_file(current_config):
-            if self.refresh_callback:
-                self.refresh_callback()
-            messagebox.showinfo("Configurazione Applicata", "Le modifiche sono state applicate alla dashboard.",
-                                parent=self.window)
-
-    def save_config_and_close(self):
-        current_config = self._get_current_config_data()
-        if self._save_to_file(current_config):
-            if self.refresh_callback:
-                self.refresh_callback()
-            self._on_close()  # Chiude la finestra
-
-    def load_config_and_render(self):
-        try:
-            with open(self.CONFIG_PATH, "r") as f:
-                config_data = json.load(f)
-
-            loaded_rows = config_data.get("grid_rows", INITIAL_GRID_ROWS)  # Usa fallback
-            loaded_cols = config_data.get("grid_cols", INITIAL_GRID_COLS)  # Usa fallback
-            self.current_grid_rows.set(loaded_rows)
-            self.current_grid_cols.set(loaded_cols)
-
-            self._initialize_grid_slots()
-
-            for item in config_data.get("widgets", []):
-                if not item.get("visible", True): continue
-                widget_name = item["nome"]
-                widget_info = next((w for w in self.WIDGETS if w["nome"] == widget_name), None)
-                if widget_info:
-                    row, col = item["row"], item["column"]
-                    # Nota: widget_info["size"] è (cols, rows)
-                    if row + widget_info["size"][1] <= loaded_rows and col + widget_info["size"][0] <= loaded_cols:
-                        self._internal_place_widget_data(widget_info, row, col)
-        except FileNotFoundError:
-            self._initialize_grid_slots()  # Inizia con griglia vuota se config non trovata
-        except json.JSONDecodeError:
-            messagebox.showerror("Errore Configurazione", f"File {self.CONFIG_PATH} corrotto.", parent=self.window)
-            self._initialize_grid_slots()
-        except Exception as e:
-            messagebox.showerror("Errore Caricamento", f"Errore imprevisto: {e}", parent=self.window)
-            self._initialize_grid_slots()
-
-        self.render_grid_placeholders_and_widgets()
-
-    def reset_default_config(self):
-        if messagebox.askyesno("Conferma", "Ripristinare la configurazione predefinita?", parent=self.window):
-            try:
-                with open(self.DEFAULT_CONFIG_PATH, "r") as f_default:
-                    default_config_data = json.load(f_default)
-
-                if self._save_to_file(default_config_data):  # Salva default come corrente
-                    self.load_config_and_render()  # Ricarica UI del configuratore
-                    if self.refresh_callback:
-                        self.refresh_callback()  # Aggiorna dashboard principale
-                    messagebox.showinfo("Ripristino", "Configurazione predefinita ripristinata.", parent=self.window)
-            except FileNotFoundError:
-                messagebox.showerror("Errore", f"File default ({self.DEFAULT_CONFIG_PATH}) non trovato.",
-                                     parent=self.window)
-            except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile ripristinare: {e}", parent=self.window)
-
-
-# --- Funzioni dell'Applicazione ---
-
-def apri_dashboard(main_frame, app_root_window):  # Passa la finestra radice per Toplevel
-    for widget in main_frame.winfo_children():
-        widget.destroy()
-
-    main_frame.columnconfigure(0, weight=1)  # Colonna unica per il contenuto della dashboard
-    main_frame.rowconfigure(1, weight=1)  # Riga per i widget si espande
-
-    header_frame = ttkb.Frame(main_frame)  # Frame per titolo e bottone config
-    header_frame.grid(row=0, column=0, sticky="ew", pady=(10, 0), padx=20)
-    header_frame.columnconfigure(0, weight=1)  # Titolo a sinistra
-
-    titolo = ttkb.Label(header_frame, text="Dashboard", font=("Segoe UI", 18, "bold"))
-    titolo.grid(row=0, column=0, sticky="w")
-
-    widget_frame = ttkb.Frame(main_frame)  # Questo è il frame dove vanno i widget della dashboard
-    widget_frame.grid(row=1, column=0, sticky="nsew", padx=20, pady=10)
-
-    current_rows_dash, current_cols_dash = INITIAL_GRID_ROWS, INITIAL_GRID_COLS
-    widget_configurations_dash = []
-
+# --- Stato Globale dell'Applicazione ---
+app_state = {
+    "edit_mode_active": False,
+    "dashboard_config": None,
+    "main_frame_ref": None,
+    "app_root_ref": None,
+    "widget_frame_ref": None,
+    "displayed_widgets_map": {},
+    "drag_data": {}
+}
+
+
+# --- Funzioni Factory per i Widget della Dashboard ---
+# Il parametro 'parent_for_this_widget_content' è il frame in cui il contenuto
+# effettivo del widget (es. un LabelFrame) deve essere inserito.
+# In modalità modifica, sarà il 'wrapper'. In modalità visualizzazione, sarà 'widget_frame_ref'.
+
+def widget_saldo(parent_for_this_widget_content):
+    frame = ttkb.LabelFrame(parent_for_this_widget_content, text="Saldo Totale", padding=10)
     try:
-        os.makedirs(DATA_DIR, exist_ok=True)  # Crea dir se non esiste
+        conti = carica_conti()
+        saldo_totale = sum(float(s) for s in conti.values())
+        ttkb.Label(frame, text=f"€ {saldo_totale:.2f}", font=("Segoe UI", 16)).pack(pady=5)
+        for nome, saldo in conti.items():
+            ttkb.Label(frame, text=f"{nome}: € {float(saldo):.2f}", font=("Segoe UI", 9), bootstyle=SECONDARY).pack(
+                anchor="w", padx=10)
+    except Exception as e:
+        ttkb.Label(frame, text=f"Errore dati: {e}", bootstyle=DANGER).pack()
+    return frame  # Questo frame (LabelFrame) è il contenuto VISIVO del widget
+
+
+def widget_transazioni(parent_for_this_widget_content):
+    frame = ttkb.LabelFrame(parent_for_this_widget_content, text="Ultime Transazioni", padding=10)
+    try:
+        transazioni = carica_transazioni()
+        for tr in sorted(transazioni, key=lambda x: x["data"], reverse=True)[:5]:
+            importo = float(tr['importo'])
+            riga = f"{tr['data']} | {tr.get('descrizione', 'N/D')[:20]}... | {tr['categoria']} | {importo:.2f} €"
+            colore = SUCCESS if importo >= 0 else DANGER
+            ttkb.Label(frame, text=riga, font=("Segoe UI", 10), bootstyle=colore).pack(anchor="w", fill=X)
+    except Exception as e:
+        ttkb.Label(frame, text=f"Errore caricamento dati: {e}", bootstyle=DANGER).pack()
+    return frame
+
+
+def widget_investimenti(parent_for_this_widget_content):
+    frame = ttkb.LabelFrame(parent_for_this_widget_content, text="Valore Portafoglio Investimenti", padding=10)
+    ttkb.Label(frame, text="[Grafico Investimenti Placeholder]", font=("Segoe UI", 12, "italic"),
+               bootstyle=SECONDARY).pack(expand=True)
+    return frame
+
+
+def widget_bilancio(parent_for_this_widget_content):
+    frame = ttkb.LabelFrame(parent_for_this_widget_content, text="Bilancio Mensile", padding=10)
+    try:
+        transazioni = carica_transazioni()
+        transazioni_mese = [t for t in transazioni if t["data"].startswith(datetime.today().strftime("%Y-%m"))]
+        entrate = sum(float(t["importo"]) for t in transazioni_mese if float(t["importo"]) > 0)
+        uscite = -sum(float(t["importo"]) for t in transazioni_mese if float(t["importo"]) < 0)
+        bilancio = entrate - uscite
+        ttkb.Label(frame, text=f"Entrate: € {entrate:.2f}", font=("Segoe UI", 10), bootstyle=SUCCESS).pack(anchor="w")
+        ttkb.Label(frame, text=f"Uscite: € {uscite:.2f}", font=("Segoe UI", 10), bootstyle=DANGER).pack(anchor="w")
+        ttkb.Label(frame, text=f"Bilancio: € {bilancio:.2f}", font=("Segoe UI", 12, "bold"),
+                   bootstyle=(SUCCESS if bilancio >= 0 else DANGER)).pack(anchor="w", pady=(5, 0))
+    except Exception as e:
+        ttkb.Label(frame, text=f"Errore caricamento dati: {e}", bootstyle=DANGER).pack()
+    return frame
+
+
+def widget_goal(parent_for_this_widget_content):
+    frame = ttkb.LabelFrame(parent_for_this_widget_content, text="Obiettivi di Risparmio", padding=10)
+    obiettivi = [
+        {"nome": "Vacanza Tokyo", "attuale": 2200, "target": 3000},
+        {"nome": "Nuovo PC", "attuale": 500, "target": 1500}
+    ]
+    for obiettivo in obiettivi:
+        ttkb.Label(frame, text=f"{obiettivo['nome']}: {obiettivo['attuale']} / {obiettivo['target']} €",
+                   font=("Segoe UI", 10)).pack(anchor="w", fill=X, padx=5)
+        prog_val = (obiettivo['attuale'] / obiettivo['target']) * 100 if obiettivo['target'] > 0 else 0
+        ttkb.Progressbar(frame, value=prog_val, bootstyle=INFO).pack(fill=X, pady=(2, 8), padx=5)
+    return frame
+
+
+def widget_watchlist(parent_for_this_widget_content):
+    frame = ttkb.LabelFrame(parent_for_this_widget_content, text="Watchlist Azioni", padding=10)
+    watchlist_items = [{"ticker": "AAPL", "prezzo": 185.20, "var": +1.25},
+                       {"ticker": "TSLA", "prezzo": 172.55, "var": -2.14}]
+    for t in watchlist_items:
+        colore = SUCCESS if t["var"] >= 0 else DANGER
+        riga = f"{t['ticker']}: € {t['prezzo']:.2f} ({t['var']:+.2f}%)"
+        ttkb.Label(frame, text=riga, font=("Segoe UI", 10), bootstyle=colore).pack(anchor="w")
+    return frame
+
+
+def _create_placeholder_factory(title_text):
+    def factory(parent_for_this_widget_content):
+        frame = ttkb.LabelFrame(parent_for_this_widget_content, text=title_text, padding=10)
+        ttkb.Label(frame, text=f"[{title_text} Placeholder]", font=("Segoe UI", 10, "italic"),
+                   bootstyle=SECONDARY).pack(expand=True, fill=BOTH)
+        return frame
+
+    return factory
+
+
+widget_scontrini_placeholder = _create_placeholder_factory("Scansione Scontrini")
+widget_statistiche_placeholder = _create_placeholder_factory("Statistiche Spese")
+widget_prossime_spese_placeholder = _create_placeholder_factory("Prossime Spese")
+widget_calendario_placeholder = _create_placeholder_factory("Calendario Finanziario")
+widget_storico_saldo_placeholder = _create_placeholder_factory("Storico Saldo")
+widget_crediti_debiti_placeholder = _create_placeholder_factory("Crediti e Debiti")
+
+WIDGET_FACTORIES = {
+    "widget_saldo": widget_saldo, "widget_transazioni": widget_transazioni,
+    "widget_investimenti": widget_investimenti, "widget_bilancio": widget_bilancio,
+    "widget_goal": widget_goal, "widget_watchlist": widget_watchlist,
+    "widget_scontrini_placeholder": widget_scontrini_placeholder,
+    "widget_statistiche_placeholder": widget_statistiche_placeholder,
+    "widget_prossime_spese_placeholder": widget_prossime_spese_placeholder,
+    "widget_calendario_placeholder": widget_calendario_placeholder,
+    "widget_storico_saldo_placeholder": widget_storico_saldo_placeholder,
+    "widget_crediti_debiti_placeholder": widget_crediti_debiti_placeholder,
+}
+
+
+def load_dashboard_config():
+    global app_state
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
         with open(CONFIG_PATH_MAIN, "r") as f:
-            config = json.load(f)
-        current_rows_dash = config.get("grid_rows", INITIAL_GRID_ROWS)
-        current_cols_dash = config.get("grid_cols", INITIAL_GRID_COLS)
-        widget_configurations_dash = config.get("widgets", [])
+            app_state["dashboard_config"] = json.load(f)
     except FileNotFoundError:
         try:
             with open(DEFAULT_CONFIG_PATH_MAIN, "r") as f_default:
-                config = json.load(f_default)
-            current_rows_dash = config.get("grid_rows", INITIAL_GRID_ROWS)
-            current_cols_dash = config.get("grid_cols", INITIAL_GRID_COLS)
-            widget_configurations_dash = config.get("widgets", [])
-            with open(CONFIG_PATH_MAIN, "w") as f_current:  # Salva default come corrente
-                json.dump(config, f_current, indent=4)
-        except FileNotFoundError:
-            # Se anche il default non c'è, crea un file di config vuoto o con una base
-            base_config = {"grid_rows": INITIAL_GRID_ROWS, "grid_cols": INITIAL_GRID_COLS, "widgets": []}
+                app_state["dashboard_config"] = json.load(f_default)
             with open(CONFIG_PATH_MAIN, "w") as f_current:
-                json.dump(base_config, f_current, indent=4)
-            # Potresti caricare una configurazione di default codificata qui se preferisci
-        except Exception as e_load_default:
-            messagebox.showerror("Errore Caricamento Default", f"Errore caricamento config default: {e_load_default}")
+                json.dump(app_state["dashboard_config"], f_current, indent=4)
+        except FileNotFoundError:
+            app_state["dashboard_config"] = {"grid_rows": INITIAL_GRID_ROWS, "grid_cols": INITIAL_GRID_COLS,
+                                             "widgets": []}
+            if not os.path.exists(DEFAULT_CONFIG_PATH_MAIN):
+                with open(DEFAULT_CONFIG_PATH_MAIN, "w") as f_def_new: json.dump(app_state["dashboard_config"],
+                                                                                 f_def_new, indent=4)
     except Exception as e:
-        messagebox.showerror("Errore Caricamento Config", f"Errore caricamento dashboard: {e}")
-
-    for i in range(current_cols_dash):
-        widget_frame.columnconfigure(i, weight=1, uniform="col_dash")
-    for i in range(current_rows_dash):
-        widget_frame.rowconfigure(i, weight=1, uniform="row_dash")
-
-    # Funzioni per creare i widget della dashboard
-    def widget_saldo():
-        frame = ttkb.LabelFrame(widget_frame, text="Saldo Totale", padding=10)
-        try:
-            conti = carica_conti()
-            saldo_totale = sum(float(s) for s in conti.values())  # Assicura float
-            ttkb.Label(frame, text=f"€ {saldo_totale:.2f}", font=("Segoe UI", 16)).pack(pady=5)
-            for nome, saldo in conti.items():
-                ttkb.Label(frame, text=f"{nome}: € {float(saldo):.2f}", font=("Segoe UI", 9), bootstyle=SECONDARY).pack(
-                    anchor="w", padx=10)
-        except Exception as e:
-            ttkb.Label(frame, text=f"Errore caricamento dati: {e}", bootstyle=DANGER).pack()
-        return frame
-
-    def widget_transazioni():
-        frame = ttkb.LabelFrame(widget_frame, text="Ultime Transazioni", padding=10)
-        try:
-            transazioni = carica_transazioni()
-            for tr in sorted(transazioni, key=lambda x: x["data"], reverse=True)[:5]:
-                importo = float(tr['importo'])
-                riga = f"{tr['data']} | {tr['descrizione'][:20]}... | {tr['categoria']} | {importo:.2f} €"
-                colore = SUCCESS if importo >= 0 else DANGER
-                ttkb.Label(frame, text=riga, font=("Segoe UI", 10), bootstyle=colore).pack(anchor="w", fill=X)
-        except Exception as e:
-            ttkb.Label(frame, text=f"Errore caricamento dati: {e}", bootstyle=DANGER).pack()
-        return frame
-
-    def widget_investimenti():
-        frame = ttkb.LabelFrame(widget_frame, text="Valore Portafoglio Investimenti", padding=10)
-        ttkb.Label(frame, text="[Grafico Investimenti Placeholder]", font=("Segoe UI", 12, "italic"),
-                   bootstyle=SECONDARY).pack(expand=True)
-        return frame
-
-    def widget_bilancio():
-        frame = ttkb.LabelFrame(widget_frame, text="Bilancio Mensile", padding=10)
-        try:
-            transazioni = carica_transazioni()
-            transazioni_mese = [t for t in transazioni if t["data"].startswith(datetime.today().strftime("%Y-%m"))]
-            entrate = sum(float(t["importo"]) for t in transazioni_mese if float(t["importo"]) > 0)
-            uscite = -sum(float(t["importo"]) for t in transazioni_mese if float(t["importo"]) < 0)
-            bilancio = entrate - uscite
-            ttkb.Label(frame, text=f"Entrate: € {entrate:.2f}", font=("Segoe UI", 10), bootstyle=SUCCESS).pack(
-                anchor="w")
-            ttkb.Label(frame, text=f"Uscite: € {uscite:.2f}", font=("Segoe UI", 10), bootstyle=DANGER).pack(anchor="w")
-            ttkb.Label(frame, text=f"Bilancio: € {bilancio:.2f}", font=("Segoe UI", 12, "bold"),
-                       bootstyle=(SUCCESS if bilancio >= 0 else DANGER)).pack(anchor="w", pady=(5, 0))
-        except Exception as e:
-            ttkb.Label(frame, text=f"Errore caricamento dati: {e}", bootstyle=DANGER).pack()
-        return frame
-
-    def widget_goal():
-        frame = ttkb.LabelFrame(widget_frame, text="Obiettivi di Risparmio", padding=10)
-        # Dati Mock
-        obiettivi = [
-            {"nome": "Vacanza Tokyo", "attuale": 2200, "target": 3000},
-            {"nome": "Nuovo PC", "attuale": 500, "target": 1500}
-        ]
-        for obiettivo in obiettivi:
-            ttkb.Label(frame, text=f"{obiettivo['nome']}: {obiettivo['attuale']} / {obiettivo['target']} €",
-                       font=("Segoe UI", 10)).pack(anchor="w")
-            prog_val = (obiettivo['attuale'] / obiettivo['target']) * 100 if obiettivo['target'] > 0 else 0
-            ttkb.Progressbar(frame, value=prog_val, bootstyle=INFO).pack(fill=X, pady=(2, 8))
-        return frame
-
-    def widget_watchlist():
-        frame = ttkb.LabelFrame(widget_frame, text="Watchlist Azioni", padding=10)
-        # Dati Mock
-        watchlist_items = [{"ticker": "AAPL", "prezzo": 185.20, "var": +1.25},
-                           {"ticker": "TSLA", "prezzo": 172.55, "var": -2.14}]
-        for t in watchlist_items:
-            colore = SUCCESS if t["var"] >= 0 else DANGER
-            riga = f"{t['ticker']}: € {t['prezzo']:.2f} ({t['var']:+.2f}%)"
-            ttkb.Label(frame, text=riga, font=("Segoe UI", 10), bootstyle=colore).pack(anchor="w")
-        return frame
-
-    # Placeholder per gli altri widget
-    def create_placeholder_widget(parent_frame, title):
-        frame = ttkb.LabelFrame(parent_frame, text=title, padding=10)
-        ttkb.Label(frame, text=f"[{title} - Contenuto Placeholder]", font=("Segoe UI", 10, "italic"),
-                   bootstyle=SECONDARY).pack(expand=True)
-        return frame
-
-    widget_map = {
-        "saldo": widget_saldo,
-        "transazioni": widget_transazioni,
-        "investimenti": widget_investimenti,
-        "bilancio": widget_bilancio,
-        "obiettivi": widget_goal,
-        "watchlist": widget_watchlist,
-        "scontrini": lambda: create_placeholder_widget(widget_frame, "Scansione Scontrini"),
-        "statistiche_spese": lambda: create_placeholder_widget(widget_frame, "Statistiche Spese"),
-        "prossime_spese": lambda: create_placeholder_widget(widget_frame, "Prossime Spese"),
-        "calendario": lambda: create_placeholder_widget(widget_frame, "Calendario Finanziario"),
-        "storico_saldo": lambda: create_placeholder_widget(widget_frame, "Storico Saldo"),
-        "crediti_debiti": lambda: create_placeholder_widget(widget_frame, "Crediti e Debiti")
-    }
-
-    for w_conf in widget_configurations_dash:
-        if w_conf.get("visible", False) and w_conf["nome"] in widget_map:
-            try:
-                widget_to_display = widget_map[w_conf["nome"]]()  # Chiamata alla funzione che crea il widget
-                widget_to_display.grid(
-                    row=w_conf["row"], column=w_conf["column"],
-                    rowspan=w_conf.get("rowspan", 1), columnspan=w_conf.get("columnspan", 1),
-                    padx=5, pady=5, sticky="nsew"
-                )
-            except Exception as e_widget_create:
-                print(f"Errore creazione widget '{w_conf['nome']}': {e_widget_create}")
-                # Potresti visualizzare un widget di errore sulla dashboard
-                error_frame = ttkb.LabelFrame(widget_frame, text=f"Errore: {w_conf['nome']}", padding=5,
-                                              bootstyle=DANGER)
-                ttkb.Label(error_frame, text=f"Impossibile caricare:\n{e_widget_create}", wraplength=150).pack()
-                error_frame.grid(row=w_conf["row"], column=w_conf["column"],
-                                 rowspan=w_conf.get("rowspan", 1), columnspan=w_conf.get("columnspan", 1),
-                                 padx=5, pady=5, sticky="nsew")
-
-    def apri_configuratore_callback():
-        try:
-            with open(CONFIG_PATH_MAIN, "r") as f_cfg:
-                cfg = json.load(f_cfg)
-            initial_r_cfg = cfg.get("grid_rows", INITIAL_GRID_ROWS)
-            initial_c_cfg = cfg.get("grid_cols", INITIAL_GRID_COLS)
-        except:  # File non trovato o corrotto
-            initial_r_cfg = INITIAL_GRID_ROWS
-            initial_c_cfg = INITIAL_GRID_COLS
-
-        ConfigDashboardWindow(
-            app_root_window,  # Passa la finestra radice (app)
-            lambda: apri_dashboard(main_frame, app_root_window),  # Callback
-            initial_grid_rows=initial_r_cfg,
-            initial_grid_cols=initial_c_cfg,
-            widgets_list=WIDGETS,
-            config_file_path=CONFIG_PATH_MAIN,
-            default_config_file_path=DEFAULT_CONFIG_PATH_MAIN
-        )
-
-    btn_config = ttkb.Button(header_frame, text="⚙️ Configura", bootstyle=(SECONDARY, OUTLINE),
-                             command=apri_configuratore_callback)
-    btn_config.grid(row=0, column=1, sticky="e")
+        messagebox.showerror("Errore Caricamento Config", f"Errore: {e}")
+        app_state["dashboard_config"] = {"grid_rows": INITIAL_GRID_ROWS, "grid_cols": INITIAL_GRID_COLS, "widgets": []}
 
 
-def apri_conti(main_frame, app_root_window):
-    for widget in main_frame.winfo_children():
-        widget.destroy()
-    ttkb.Label(main_frame, text="Sezione Conti", font=("Segoe UI", 16, "bold")).pack(pady=20)
-    # Qui andrà la logica e l'UI per la gestione dei conti
+def save_dashboard_config():
+    global app_state
+    if not app_state["dashboard_config"]: return
+    try:
+        with open(CONFIG_PATH_MAIN, "w") as f:
+            json.dump(app_state["dashboard_config"], f, indent=4)
+        if not app_state["edit_mode_active"]: messagebox.showinfo("Salvataggio", "Layout dashboard salvato.")
+    except Exception as e:
+        messagebox.showerror("Errore Salvataggio", f"Impossibile salvare: {e}")
 
 
-def apri_transazioni(main_frame, app_root_window):
-    for widget in main_frame.winfo_children():
-        widget.destroy()
-    ttkb.Label(main_frame, text="Storico Transazioni", font=("Segoe UI", 16, "bold")).pack(pady=20)
-    # Qui andrà la logica e l'UI per la gestione delle transazioni
+def render_dashboard():
+    global app_state
+    if not app_state["main_frame_ref"] or not app_state["dashboard_config"]: return
+
+    if app_state["widget_frame_ref"]:
+        for child in app_state["widget_frame_ref"].winfo_children(): child.destroy()
+    app_state["displayed_widgets_map"].clear()
+
+    if not app_state["widget_frame_ref"] or not app_state["widget_frame_ref"].winfo_exists():
+        app_state["widget_frame_ref"] = ttkb.Frame(app_state["main_frame_ref"])
+        app_state["widget_frame_ref"].grid(row=1, column=0, sticky="nsew", padx=20, pady=10)
+        app_state["main_frame_ref"].rowconfigure(1, weight=1)
+        app_state["main_frame_ref"].columnconfigure(0, weight=1)
+
+    cfg = app_state["dashboard_config"]
+    rows = cfg.get("grid_rows", INITIAL_GRID_ROWS)
+    cols = cfg.get("grid_cols", INITIAL_GRID_COLS)
+
+    for i in range(cols): app_state["widget_frame_ref"].columnconfigure(i, weight=1, uniform="col_dash")
+    for i in range(rows): app_state["widget_frame_ref"].rowconfigure(i, weight=1, uniform="row_dash")
+
+    for widget_conf in cfg.get("widgets", []):
+        if not widget_conf.get("visible", False): continue
+
+        widget_name = widget_conf["nome"]
+        widget_info = next((w for w in WIDGETS if w["nome"] == widget_name), None)
+        if not widget_info: continue
+
+        factory_name = widget_info.get("factory")
+        if not factory_name or factory_name not in WIDGET_FACTORIES: continue
+
+        actual_widget_content_labelframe = None  # Inizializza
+
+        if app_state["edit_mode_active"]:
+            wrapper = ttkb.Frame(app_state["widget_frame_ref"], relief=SOLID, borderwidth=1, padding=2)
+
+            # Il LabelFrame (contenuto del widget) è figlio del WRAPPER
+            actual_widget_content_labelframe = WIDGET_FACTORIES[factory_name](wrapper)
+            actual_widget_content_labelframe.pack(expand=True, fill=BOTH, padx=5, pady=(15, 5))
+
+            remove_btn = ttkb.Button(wrapper, text="✕", bootstyle=(DANGER, OUTLINE, TOOLBUTTON), width=2,
+                                     command=lambda name=widget_name: remove_dashboard_widget(name))
+            remove_btn.place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
+
+            wrapper.grid(row=widget_conf["row"], column=widget_conf["column"],
+                         rowspan=widget_conf.get("rowspan", 1), columnspan=widget_conf.get("columnspan", 1),
+                         padx=7, pady=7, sticky="nsew")
+
+            wrapper.bind("<ButtonPress-1>",
+                         lambda event, w_name=widget_name, w_obj=wrapper: start_drag(event, w_name, w_obj))
+            wrapper.bind("<B1-Motion>", lambda event, w_name=widget_name: do_drag(event, w_name))
+            wrapper.bind("<ButtonRelease-1>", lambda event, w_name=widget_name: end_drag(event, w_name))
+
+            app_state["displayed_widgets_map"][widget_name] = {"widget_obj": actual_widget_content_labelframe,
+                                                               "wrapper": wrapper}
+        else:
+            # Il LabelFrame (contenuto del widget) è figlio di widget_frame_ref
+            actual_widget_content_labelframe = WIDGET_FACTORIES[factory_name](app_state["widget_frame_ref"])
+            actual_widget_content_labelframe.grid(row=widget_conf["row"], column=widget_conf["column"],
+                                                  rowspan=widget_conf.get("rowspan", 1),
+                                                  columnspan=widget_conf.get("columnspan", 1),
+                                                  padx=5, pady=5, sticky="nsew")
+            app_state["displayed_widgets_map"][widget_name] = {"widget_obj": actual_widget_content_labelframe,
+                                                               "wrapper": None}
+
+    if app_state["edit_mode_active"]:
+        for r in range(rows):
+            for c in range(cols):
+                is_occupied = False
+                for wc_check in cfg.get("widgets", []):
+                    if wc_check.get("visible"):
+                        r_start, c_start = wc_check["row"], wc_check["column"]
+                        r_span, c_span = wc_check.get("rowspan", 1), wc_check.get("columnspan", 1)
+                        if r_start <= r < r_start + r_span and c_start <= c < c_start + c_span:
+                            is_occupied = True;
+                            break
+                if not is_occupied:
+                    placeholder = ttkb.Frame(app_state["widget_frame_ref"], relief=SOLID, borderwidth=1)
+                    placeholder.grid(row=r, column=c, rowspan=1, columnspan=1, padx=5, pady=5, sticky="nsew")
+                    add_label = ttkb.Label(placeholder, text=f"+", bootstyle=(SECONDARY, LIGHT),
+                                           font=("Segoe UI", 16, "bold"))
+                    add_label.pack(expand=True)
+                    placeholder.bind("<Button-1>", lambda e, r_val=r, c_val=c: add_widget_dialog(r_val, c_val))
+                    add_label.bind("<Button-1>", lambda e, r_val=r, c_val=c: add_widget_dialog(r_val, c_val))
 
 
-def apri_investimenti(main_frame, app_root_window):
-    for widget in main_frame.winfo_children():
-        widget.destroy()
-    ttkb.Label(main_frame, text="Portafoglio Investimenti", font=("Segoe UI", 16, "bold")).pack(pady=20)
-    # Qui andrà la logica e l'UI per la gestione degli investimenti
+def toggle_edit_mode():
+    global app_state
+    app_state["edit_mode_active"] = not app_state["edit_mode_active"]
+
+    if app_state.get("edit_mode_button_ref"):
+        btn_text = "Salva Layout" if app_state["edit_mode_active"] else "Modifica Layout"
+        style = SUCCESS if app_state["edit_mode_active"] else (SECONDARY, OUTLINE)
+        app_state["edit_mode_button_ref"].config(text=btn_text, bootstyle=style)
+
+    if not app_state["edit_mode_active"]: save_dashboard_config()
+    render_dashboard()
 
 
-def apri_impostazioni(main_frame, app_root_window):
-    for widget in main_frame.winfo_children():
-        widget.destroy()
-    ttkb.Label(main_frame, text="Impostazioni Applicazione", font=("Segoe UI", 16, "bold")).pack(pady=20)
-    # Qui andrà la logica e l'UI per le impostazioni globali
+def remove_dashboard_widget(widget_name_to_remove):
+    global app_state
+    config_widgets = app_state["dashboard_config"].get("widgets", [])
+    for wc in config_widgets:
+        if wc["nome"] == widget_name_to_remove: wc["visible"] = False; break
+    render_dashboard()
 
 
-def saluto_random(nome="Utente"):  # Modificato nome default
+def add_widget_dialog(target_row, target_col):
+    global app_state
+    dialog = ttkb.Toplevel(app_state["app_root_ref"])
+    dialog.title("Aggiungi Widget")
+    dialog.geometry("300x400");
+    dialog.transient(app_state["app_root_ref"]);
+    dialog.grab_set()
+    ttkb.Label(dialog, text="Scegli un widget da aggiungere:", padding=10).pack()
+    visible_widget_names = {wc['nome'] for wc in app_state["dashboard_config"]['widgets'] if wc.get('visible')}
+    listbox = tk.Listbox(dialog, selectmode=SINGLE, exportselection=False, relief=SOLID, borderwidth=1)
+    available_for_add = [w_info for w_info in WIDGETS if w_info['nome'] not in visible_widget_names]
+    for w_info in available_for_add: listbox.insert(END, w_info['label'])
+    listbox.pack(fill=BOTH, expand=True, padx=10, pady=5)
+    if not available_for_add: ttkb.Label(dialog, text="Nessun widget disponibile.", bootstyle=INFO).pack(pady=10)
+
+    def on_add_confirm():
+        selected_indices = listbox.curselection()
+        if not selected_indices or not available_for_add: dialog.destroy(); return
+        selected_widget_info = available_for_add[selected_indices[0]]
+        widget_name = selected_widget_info["nome"]
+        found_in_config = False
+        for wc in app_state["dashboard_config"]["widgets"]:
+            if wc["nome"] == widget_name:
+                wc.update({"visible": True, "row": target_row, "column": target_col,
+                           "rowspan": selected_widget_info["size"][1], "columnspan": selected_widget_info["size"][0]})
+                found_in_config = True;
+                break
+        if not found_in_config:
+            app_state["dashboard_config"]["widgets"].append({
+                "nome": widget_name, "visible": True, "row": target_row, "column": target_col,
+                "rowspan": selected_widget_info["size"][1], "columnspan": selected_widget_info["size"][0]})
+        dialog.destroy();
+        render_dashboard()
+
+    btn_frame = ttkb.Frame(dialog, padding=10);
+    btn_frame.pack(fill=X)
+    add_btn = ttkb.Button(btn_frame, text="Aggiungi", command=on_add_confirm, bootstyle=SUCCESS)
+    add_btn.pack(side=LEFT, padx=5, expand=True, fill=X)
+    if not available_for_add: add_btn.config(state=DISABLED)
+    ttkb.Button(btn_frame, text="Annulla", command=dialog.destroy, bootstyle=LIGHT).pack(side=RIGHT, padx=5,
+                                                                                         expand=True, fill=X)
+    dialog.after(100, dialog.lift)
+
+
+_ghost_window = None
+
+
+def start_drag(event, widget_name, widget_object_wrapper):
+    global app_state, _ghost_window
+    if not app_state["edit_mode_active"]: return
+    widget_conf = next((wc for wc in app_state["dashboard_config"]["widgets"] if wc["nome"] == widget_name), None)
+    if not widget_conf: return
+
+    app_state["drag_data"] = {"widget_name": widget_name, "item": widget_object_wrapper,
+                              "start_x_root": event.x_root, "start_y_root": event.y_root,
+                              "original_grid_info": widget_object_wrapper.grid_info(), "widget_conf": widget_conf}
+    widget_object_wrapper.lift()
+    if _ghost_window: _ghost_window.destroy()
+    _ghost_window = ttkb.Toplevel(app_state["app_root_ref"]);
+    _ghost_window.overrideredirect(True)
+    _ghost_window.attributes("-alpha", 0.7)
+    ghost_x, ghost_y = widget_object_wrapper.winfo_rootx(), widget_object_wrapper.winfo_rooty()
+    _ghost_window.geometry(
+        f"{widget_object_wrapper.winfo_width()}x{widget_object_wrapper.winfo_height()}+{ghost_x}+{ghost_y}")
+    widget_label = next((w["label"] for w in WIDGETS if w["nome"] == widget_name), widget_name)
+    ttkb.Label(_ghost_window, text=f"Muovi: {widget_label}", bootstyle=(PRIMARY, INVERSE), padding=10).pack(fill=BOTH,
+                                                                                                            expand=True)
+    _ghost_window.lift()
+
+
+def do_drag(event, widget_name):
+    global app_state, _ghost_window
+    if not app_state["edit_mode_active"] or "item" not in app_state["drag_data"] or \
+            not _ghost_window or not _ghost_window.winfo_exists(): return
+
+    drag_info = app_state["drag_data"]
+    # Calcola la nuova posizione del fantasma basata sul movimento del mouse dalla posizione iniziale del widget
+    initial_widget_x = drag_info["item"].winfo_rootx() - (
+                drag_info["start_x_root"] - drag_info["item"].winfo_rootx())  # Confuso, meglio più semplice
+    initial_widget_y = drag_info["item"].winfo_rooty() - (drag_info["start_y_root"] - drag_info["item"].winfo_rooty())
+
+    # Posizione del widget al momento del ButtonPress
+    initial_wrapper_x_root = drag_info["item"].winfo_rootx()
+    initial_wrapper_y_root = drag_info["item"].winfo_rooty()
+
+    # Spostamento del mouse dalla sua posizione iniziale
+    mouse_delta_x = event.x_root - drag_info["start_x_root"]
+    mouse_delta_y = event.y_root - drag_info["start_y_root"]
+
+    # Nuova posizione in alto a sinistra del fantasma
+    new_ghost_x = initial_wrapper_x_root + mouse_delta_x
+    new_ghost_y = initial_wrapper_y_root + mouse_delta_y
+
+    _ghost_window.geometry(f"+{new_ghost_x}+{new_ghost_y}")
+
+
+def end_drag(event, widget_name):
+    global app_state, _ghost_window
+    if not app_state["edit_mode_active"] or "item" not in app_state["drag_data"]: return
+    if _ghost_window: _ghost_window.destroy(); _ghost_window = None
+
+    original_widget_conf = app_state["drag_data"]["widget_conf"]
+    drop_x_in_widget_frame = event.x_root - app_state["widget_frame_ref"].winfo_rootx()
+    drop_y_in_widget_frame = event.y_root - app_state["widget_frame_ref"].winfo_rooty()
+    grid_rows_total = app_state["dashboard_config"].get("grid_rows", INITIAL_GRID_ROWS)
+    grid_cols_total = app_state["dashboard_config"].get("grid_cols", INITIAL_GRID_COLS)
+
+    if app_state["widget_frame_ref"].winfo_width() > 1 and app_state["widget_frame_ref"].winfo_height() > 1:
+        cell_width = app_state["widget_frame_ref"].winfo_width() / grid_cols_total
+        cell_height = app_state["widget_frame_ref"].winfo_height() / grid_rows_total
+
+        # Considera il centro del widget trascinato per il drop, o angolo alto-sx
+        # Per semplicità, usiamo l'angolo alto-sx del punto di rilascio del mouse
+        potential_col = int(drop_x_in_widget_frame / cell_width)
+        potential_row = int(drop_y_in_widget_frame / cell_height)
+
+        # Assicura che il widget non esca dalla griglia con il suo span
+        widget_col_span = original_widget_conf.get("columnspan", 1)
+        widget_row_span = original_widget_conf.get("rowspan", 1)
+
+        target_col = max(0, min(potential_col, grid_cols_total - widget_col_span))
+        target_row = max(0, min(potential_row, grid_rows_total - widget_row_span))
+
+        can_place = True
+        for r_offset in range(widget_row_span):
+            for c_offset in range(widget_col_span):
+                check_r, check_c = target_row + r_offset, target_col + c_offset
+                for other_wc in app_state["dashboard_config"]["widgets"]:
+                    if other_wc["nome"] == widget_name or not other_wc.get("visible"): continue
+                    other_r_start, other_c_start = other_wc["row"], other_wc["column"]
+                    other_r_span, other_c_span = other_wc.get("rowspan", 1), other_wc.get("columnspan", 1)
+                    if other_r_start <= check_r < other_r_start + other_r_span and \
+                            other_c_start <= check_c < other_c_start + other_c_span:
+                        can_place = False;
+                        break
+                if not can_place: break
+            if not can_place: break
+
+        if can_place:
+            original_widget_conf["row"] = target_row
+            original_widget_conf["column"] = target_col
+        render_dashboard()
+    app_state["drag_data"] = {}
+
+
+def apri_dashboard(main_frame_param, app_root_param):
+    global app_state
+    app_state["main_frame_ref"] = main_frame_param;
+    app_state["app_root_ref"] = app_root_param
+    for widget in main_frame_param.winfo_children(): widget.destroy()
+    app_state["widget_frame_ref"] = None
+    header_frame = ttkb.Frame(main_frame_param)
+    header_frame.grid(row=0, column=0, sticky="ew", pady=(10, 0), padx=20)
+    header_frame.columnconfigure(0, weight=1)
+    ttkb.Label(header_frame, text="Dashboard", font=("Segoe UI", 18, "bold")).grid(row=0, column=0, sticky="w")
+    edit_btn_text = "Salva Layout" if app_state["edit_mode_active"] else "Modifica Layout"
+    edit_btn_style = SUCCESS if app_state["edit_mode_active"] else (SECONDARY, OUTLINE)
+    edit_mode_button = ttkb.Button(header_frame, text=edit_btn_text, command=toggle_edit_mode, bootstyle=edit_btn_style)
+    edit_mode_button.grid(row=0, column=1, sticky="e")
+    app_state["edit_mode_button_ref"] = edit_mode_button
+    main_frame_param.rowconfigure(1, weight=1);
+    main_frame_param.columnconfigure(0, weight=1)
+    if not app_state["dashboard_config"]: load_dashboard_config()
+    render_dashboard()
+
+
+def saluto_random(nome="Utente"):
     ora = datetime.now().hour
+    saluto = "Ciao"
     if 5 <= ora < 12:
         saluto = "Buongiorno"
     elif 12 <= ora < 18:
         saluto = "Buon pomeriggio"
     elif 18 <= ora < 22:
         saluto = "Buonasera"
-    else:
-        saluto = "Ciao"
     return f"{saluto}, {nome}!"
 
 
+def navigate_away_from_dashboard():
+    global app_state
+    if app_state["edit_mode_active"]:
+        save_dashboard_config()  # Salva sempre prima di navigare via se in edit mode
+        app_state["edit_mode_active"] = False
+
+
+def apri_conti(main_frame, app_root):
+    navigate_away_from_dashboard()
+    for widget in main_frame.winfo_children(): widget.destroy()
+    ttkb.Label(main_frame, text="Sezione Conti", font=("Segoe UI", 16, "bold")).pack(pady=20)
+
+
+def apri_transazioni(main_frame, app_root):
+    navigate_away_from_dashboard()
+    for widget in main_frame.winfo_children(): widget.destroy()
+    ttkb.Label(main_frame, text="Storico Transazioni", font=("Segoe UI", 16, "bold")).pack(pady=20)
+
+
+def apri_investimenti(main_frame, app_root):
+    navigate_away_from_dashboard()
+    for widget in main_frame.winfo_children(): widget.destroy()
+    ttkb.Label(main_frame, text="Portafoglio Investimenti", font=("Segoe UI", 16, "bold")).pack(pady=20)
+
+
+def apri_impostazioni(main_frame, app_root):
+    navigate_away_from_dashboard()
+    for widget in main_frame.winfo_children(): widget.destroy()
+    ttkb.Label(main_frame, text="Impostazioni Applicazione", font=("Segoe UI", 16, "bold")).pack(pady=20)
+
+
 def main():
-    app = ttkb.Window(
-        themename="superhero")  # Prova altri temi: "litera", "cosmo", "flatly", "journal", "darkly", "superhero", "solar", "cyborg", "vapor", "pulse", "united"
-    app.title("Cato Finance")
-    app.geometry("1280x720")
-    app.minsize(900, 600)  # Min size leggermente aumentata
-
+    global app_state
+    app = ttkb.Window(themename="superhero");
+    app.title("Cato Finance - Edit Mode")
+    app.geometry("1350x750");
+    app.minsize(1000, 600);
+    app_state["app_root_ref"] = app
     app.update_idletasks()
-    width = app.winfo_width()
-    height = app.winfo_height()
-    x = (app.winfo_screenwidth() // 2) - (width // 2)
-    y = (app.winfo_screenheight() // 2) - (height // 2)
+    width, height = app.winfo_width(), app.winfo_height()
+    x, y = (app.winfo_screenwidth() // 2) - (width // 2), (app.winfo_screenheight() // 2) - (height // 2)
     app.geometry(f"{width}x{height}+{x}+{y}")
-
-    app.columnconfigure(1, weight=1)
+    app.columnconfigure(1, weight=1);
     app.rowconfigure(0, weight=1)
-
-    sidebar = ttkb.Frame(app, padding=(10, 10), bootstyle=DARK, width=220)  # Larghezza sidebar
-    sidebar.grid(row=0, column=0, sticky="ns")
-    sidebar.grid_propagate(False)  # Impedisce alla sidebar di ridimensionarsi con il contenuto
-    app.grid_columnconfigure(0, weight=0)  # Sidebar non si espande
-
-    main_frame = ttkb.Frame(app, padding=0)  # Padding gestito internamente da apri_dashboard
-    main_frame.grid(row=0, column=1, sticky="nsew")
-    app.grid_columnconfigure(1, weight=1)
-
+    sidebar = ttkb.Frame(app, padding=(10, 10), bootstyle=DARK, width=220)
+    sidebar.grid(row=0, column=0, sticky="ns");
+    sidebar.grid_propagate(False)
+    app.grid_columnconfigure(0, weight=0)
+    main_content_frame = ttkb.Frame(app, padding=0)
+    main_content_frame.grid(row=0, column=1, sticky="nsew")
     ttkb.Label(sidebar, text=saluto_random(), font=("Segoe UI", 13, "bold"), bootstyle=(INVERSE, DARK)).pack(
         pady=(20, 25), padx=10)
-
-    # Pulsanti della Sidebar
     nav_buttons_config = [
-        ("🏠 Dashboard", lambda: apri_dashboard(main_frame, app)),
-        ("💼 Conti", lambda: apri_conti(main_frame, app)),
-        ("📜 Transazioni", lambda: apri_transazioni(main_frame, app)),
-        ("📈 Investimenti", lambda: apri_investimenti(main_frame, app)),
-    ]
-
+        ("🏠 Dashboard", lambda: apri_dashboard(main_content_frame, app)),
+        ("💼 Conti", lambda: apri_conti(main_content_frame, app)),
+        ("📜 Transazioni", lambda: apri_transazioni(main_content_frame, app)),
+        ("📈 Investimenti", lambda: apri_investimenti(main_content_frame, app)), ]
     for text, command in nav_buttons_config:
         ttkb.Button(sidebar, text=text, bootstyle=(SECONDARY, DARK), command=command).pack(fill=X, padx=10, pady=6)
-
-    # Separatore e Impostazioni in fondo
     ttkb.Separator(sidebar, bootstyle=SECONDARY).pack(fill=X, padx=10, pady=(15, 10))
-    ttkb.Button(sidebar, text="⚙️ Impostazioni", bootstyle=(SECONDARY, DARK),
-                command=lambda: apri_impostazioni(main_frame, app)).pack(fill=X, padx=10, side=BOTTOM,
-                                                                         pady=(6, 15))  # Un solo pady
-
-    apri_dashboard(main_frame, app)  # Mostra dashboard all'avvio
+    ttkb.Button(sidebar, text="⚙️ Impostazioni App", bootstyle=(SECONDARY, DARK),
+                command=lambda: apri_impostazioni(main_content_frame, app)).pack(fill=X, padx=10, side=BOTTOM,
+                                                                                 pady=(0, 15))
+    apri_dashboard(main_content_frame, app)
 
     def mostra_menu_plus(event):
         menu = ttkb.Menu(app, tearoff=0)
-        # Queste sono azioni placeholder, dovrai implementare le finestre/funzioni reali
-        menu.add_command(label="Aggiungi Transazione",
-                         command=lambda: print("TODO: Apri finestra aggiungi transazione"))
-        menu.add_command(label="Aggiungi Conto", command=lambda: print("TODO: Apri finestra aggiungi conto"))
-        menu.add_command(label="Aggiungi Obiettivo", command=lambda: print("TODO: Apri finestra aggiungi obiettivo"))
-        menu.add_separator()
-        menu.add_command(label="Importa Estratto Conto",
-                         command=lambda: print("TODO: Apri finestra importa estratto conto"))
+        menu.add_command(label="Aggiungi Transazione", command=lambda: print("TODO: Finestra Transazione"))
         try:
             menu.tk_popup(event.x_root, event.y_root)
-        except tk.TclError:  # A volte può dare errore se il menu è già visibile o distrutto
+        except tk.TclError:
             pass
 
-    btn_plus = ttkb.Button(app, text="➕", bootstyle="success-outline", width=3) # o "success-toolbutton"
-    btn_plus.place(relx=0.98, rely=0.95, anchor="se")  # Posizionato in basso a destra
+    btn_plus = ttkb.Button(app, text="➕", bootstyle="success-outline", width=3)
+    btn_plus.place(relx=0.98, rely=0.95, anchor="se");
     btn_plus.bind("<Button-1>", mostra_menu_plus)
 
+    def on_app_close():
+        navigate_away_from_dashboard(); app.destroy()
+
+    app.protocol("WM_DELETE_WINDOW", on_app_close)
     app.mainloop()
 
 
 if __name__ == "__main__":
-    # Assicurati che i file di configurazione di default esistano.
-    # Se non esistono, creali con una struttura base.
     os.makedirs(DATA_DIR, exist_ok=True)
     if not os.path.exists(DEFAULT_CONFIG_PATH_MAIN):
-        default_content = {
-            "grid_rows": 6,
-            "grid_cols": 6,
-            "widgets": [  # Una configurazione di default minima
-                {"nome": "saldo", "visible": True, "row": 0, "column": 0, "rowspan": 2, "columnspan": 3},
-                {"nome": "transazioni", "visible": True, "row": 0, "column": 3, "rowspan": 2, "columnspan": 3},
-                {"nome": "bilancio", "visible": True, "row": 2, "column": 0, "rowspan": 2, "columnspan": 2}
-            ]
-        }
+        default_widgets_config = []
+        default_layout = [("saldo", 0, 0), ("transazioni", 0, 3), ("investimenti", 2, 0),
+                          ("watchlist", 2, 4), ("bilancio", 4, 0), ("obiettivi", 4, 2)]
+        placed_default_names = {item[0] for item in default_layout}
+        for name, row, col in default_layout:
+            w_info = next((w for w in WIDGETS if w['nome'] == name), None)
+            if w_info: default_widgets_config.append({"nome": name, "visible": True, "row": row, "column": col,
+                                                      "rowspan": w_info["size"][1], "columnspan": w_info["size"][0]})
+        for w_info in WIDGETS:
+            if w_info['nome'] not in placed_default_names:
+                default_widgets_config.append({"nome": w_info['nome'], "visible": False, "row": 0, "column": 0,
+                                               "rowspan": w_info["size"][1], "columnspan": w_info["size"][0]})
+        default_content = {"grid_rows": INITIAL_GRID_ROWS, "grid_cols": INITIAL_GRID_COLS,
+                           "widgets": default_widgets_config}
         try:
             with open(DEFAULT_CONFIG_PATH_MAIN, "w") as f:
                 json.dump(default_content, f, indent=4)
             print(f"Creato file di configurazione default: {DEFAULT_CONFIG_PATH_MAIN}")
         except Exception as e:
             print(f"Errore creazione file default config: {e}")
-
     main()
