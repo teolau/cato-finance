@@ -1,69 +1,72 @@
-[
-    {
-        "nome": "saldo",
-        "row": 0,
-        "column": 0,
-        "rowspan": 2,
-        "columnspan": 3,
-        "visible": true
-    },
-    {
-        "nome": "transazioni",
-        "row": 0,
-        "column": 3,
-        "rowspan": 2,
-        "columnspan": 3,
-        "visible": true
-    },
-    {
-        "nome": "investimenti",
-        "row": 2,
-        "column": 0,
-        "rowspan": 2,
-        "columnspan": 4,
-        "visible": true
-    },
-    {
-        "nome": "bilancio",
-        "row": 4,
-        "column": 0,
-        "rowspan": 2,
-        "columnspan": 2,
-        "visible": true
-    },
-    {
-        "nome": "obiettivi",
-        "row": 4,
-        "column": 2,
-        "rowspan": 2,
-        "columnspan": 2,
-        "visible": true
-    },
-    {
-        "nome": "watchlist",
-        "row": 2,
-        "column": 4,
-        "rowspan": 4,
-        "columnspan": 2,
-        "visible": true
-    },
-    {
-        "nome": "scontrini",
-        "row": 3,
-        "column": 0,
-        "rowspan": 1,
-        "columnspan": 2,
-        "visible": false
-    },
-    {
-        "nome": "statistiche_spese",
-        "row": 3,
-        "column": 2,
-        "rowspan": 1,
-        "columnspan": 2,
-        "visible": false
-    },
-    {
+{
+    "grid_rows": 6,
+    "grid_cols": 6,
+    "widgets": [
+        {
+            "nome": "saldo",
+            "visible": true,
+            "row": 0,
+            "column": 0,
+            "rowspan": 2,
+            "columnspan": 3
+        },
+        {
+            "nome": "transazioni",
+            "visible": true,
+            "row": 0,
+            "column": 3,
+            "rowspan": 2,
+            "columnspan": 3
+        },
+        {
+            "nome": "investimenti",
+            "visible": true,
+            "row": 2,
+            "column": 0,
+            "rowspan": 2,
+            "columnspan": 4
+        },
+        {
+            "nome": "bilancio",
+            "visible": true,
+            "row": 4,
+            "column": 0,
+            "rowspan": 2,
+            "columnspan": 2
+        },
+        {
+            "nome": "obiettivi",
+            "visible": true,
+            "row": 4,
+            "column": 2,
+            "rowspan": 2,
+            "columnspan": 2
+        },
+        {
+            "nome": "watchlist",
+            "visible": true,
+            "row": 2,
+            "column": 4,
+            "rowspan": 4,
+            "columnspan": 2
+        },
+        {
+            "nome": "scontrini",
+            "visible": false,
+            "row": 0,
+            "column": 0,
+            "rowspan": 1,
+            "columnspan": 2
+        },
+        {
+            "nome": "statistiche_spese",
+            "visible": false,
+            "row": 1,
+            "column": 0,
+            "rowspan": 1,
+            "columnspan": 2
+        },
+        {
         "nome": "prossime_spese",
         "row": 4,
         "column": 0,
@@ -95,4 +98,6 @@
         "columnspan": 2,
         "visible": false
     }
-]
+
+    ]
+}
