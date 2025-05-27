@@ -1,6 +1,6 @@
 import ttkbootstrap as ttkb
 from ttkbootstrap.constants import *
-from storage import carica_conti, carica_transazioni  # Assicurati che questo file/funzioni esistano
+from storage import carica_conti, carica_transazioni
 import tkinter as tk
 from tkinter import messagebox
 from datetime import datetime
@@ -511,7 +511,7 @@ def apri_impostazioni(main_frame, app_root):
 def main():
     global app_state
     app = ttkb.Window(themename="superhero");
-    app.title("Cato Finance - Edit Mode")
+    app.title("Cato Finance :)")
     app.geometry("1350x750");
     app.minsize(1000, 600);
     app_state["app_root_ref"] = app
