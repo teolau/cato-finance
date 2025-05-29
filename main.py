@@ -1,13 +1,14 @@
 import ttkbootstrap as ttkb
-from ttkbootstrap.constants import *
-from storage import carica_conti, carica_transazioni
 import tkinter as tk
-from tkinter import messagebox
-from datetime import datetime
+from tkinter import messagebox, ttk
+from datetime import datetime, timedelta
 import json
 import os
 import database
 import services
+from ttkbootstrap.constants import *
+from ttkbootstrap.scrolled import ScrolledFrame # Utile per contenuti lunghi
+from ttkbootstrap.dialogs import Messagebox # Per dialoghi ttkbootstrap-styled
 
 
 # --- Costanti e Configurazioni Globali ---
@@ -17,6 +18,8 @@ DEFAULT_CONFIG_PATH_MAIN = os.path.join(DATA_DIR, "dashboard_config_default.json
 
 INITIAL_GRID_ROWS = 6
 INITIAL_GRID_COLS = 6
+
+# selected_account_id_for_transactions = None    (la uso se app_state mi dà problemi ma meglio evitare le global)
 
 WIDGETS = [
     {"nome": "saldo", "label": "Saldo Totale", "size": (3, 2), "factory": "widget_saldo"},
@@ -45,7 +48,9 @@ app_state = {
     "app_root_ref": None,
     "widget_frame_ref": None,
     "displayed_widgets_map": {},
-    "drag_data": {}
+    "drag_data": {},
+    "selected_account_id_for_view": None,
+    "widget_to_place_info": None
 }
 
 
@@ -510,6 +515,419 @@ def apri_dashboard(main_frame_param, app_root_param):
     render_dashboard()
 
 
+def apri_conti_e_transazioni_view(main_frame, app_root):
+    global app_state
+    app_state["selected_account_id_for_view"] = None
+
+    # Pulisci il main_frame precedente
+    for widget in main_frame.winfo_children():
+        widget.destroy()
+
+        # --- Funzioni Helper per questa View ---
+        def populate_conti_tree():
+            # Pulisci treeview
+            for item in conti_tree.get_children():
+                conti_tree.delete(item)
+            # Carica e popola
+            try:
+                lista_conti = services.ottieni_tutti_i_conti(solo_attivi=True)
+                for conto_dict in lista_conti:
+                    # L'ID del conto è l'item ID nel treeview per un facile recupero
+                    conti_tree.insert("", END, iid=conto_dict['id_conto'],
+                                      values=(conto_dict['nome_conto'], f"{conto_dict['saldo_attuale']:.2f} €"))
+            except Exception as e:
+                Messagebox.show_error(f"Errore caricamento conti: {e}", "Errore Dati")
+            update_conti_buttons_state()
+
+        def populate_trans_tree(transazioni_list=None, default_load=False):
+            for item in trans_tree.get_children():
+                trans_tree.delete(item)
+
+            try:
+                if transazioni_list is None:  # Se non passata una lista, carica (es. default o dopo azione)
+                    # Carica transazioni in base al conto selezionato o filtri globali
+                    data_s = date_start_entry.entry.get()
+                    data_e = date_end_entry.entry.get()
+                    termine_ricerca = search_entry.get()
+
+                    transazioni_da_mostrare = services.ottieni_transazioni_filtrate(
+                        id_conto_fk=app_state["selected_account_id_for_view"],  # Usa la variabile globale/stato
+                        data_inizio_str=data_s,
+                        data_fine_str=data_e,
+                        # categoria=termine_ricerca # TODO: la ricerca dovrebbe essere su più campi
+                        limit=100  # Limita per performance iniziale
+                    )
+                    # TODO: applicare ricerca testuale su descrizione/categoria qui se non fatta da SQL
+                    if termine_ricerca:
+                        termine_ricerca = termine_ricerca.lower()
+                        transazioni_da_mostrare = [
+                            t for t in transazioni_da_mostrare
+                            if termine_ricerca in t['descrizione'].lower() or termine_ricerca in t['categoria'].lower()
+                        ]
+
+                else:  # Usa la lista passata (es. da un filtro già applicato)
+                    transazioni_da_mostrare = transazioni_list
+
+                for tr in transazioni_da_mostrare:
+                    importo_val = float(tr['importo'])
+                    tag_colore = "entrata" if importo_val >= 0 else "uscita"
+                    # Formatta data per visualizzazione più leggibile
+                    data_vis = datetime.strptime(tr['data_transazione'], '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M')
+                    # nome_conto_tr = tr.get('nome_conto', tr['id_conto_fk']) # Già presente
+
+                    trans_tree.insert("", END, iid=tr['id_transazione'],
+                                      values=(data_vis, tr['nome_conto'], tr['descrizione'], tr['categoria'],
+                                              f"{importo_val:.2f} €"),
+                                      tags=(tag_colore,))
+            except Exception as e:
+                Messagebox.show_error(f"Errore caricamento transazioni: {e}", "Errore Dati")
+            update_trans_buttons_state()
+
+        def on_conto_select(event=None):
+            selected_items = conti_tree.selection()
+            if selected_items:
+                selected_account_id_for_transactions = selected_items[0]  # iid è l'ID del conto
+                # Aggiorna titolo transazioni
+                nome_conto_sel = conti_tree.item(selected_account_id_for_transactions)['values'][0]
+                trans_labelframe.config(text=f"Transazioni di: {nome_conto_sel}")
+                refresh_transactions_view()  # Applica filtri correnti al conto selezionato
+            else:
+                selected_account_id_for_transactions = None
+                trans_labelframe.config(text="Tutte le Transazioni")
+                refresh_transactions_view()  # Mostra tutte (o filtrate globalmente)
+            update_conti_buttons_state()
+
+        def refresh_transactions_view(data_s_str=None, data_e_str=None, search_term_str=None):
+            # Questa funzione viene chiamata per applicare i filtri
+            if data_s_str is None: data_s_str = date_start_entry.entry.get()
+            if data_e_str is None: data_e_str = date_end_entry.entry.get()
+            if search_term_str is None: search_term_str = search_entry.get()
+
+            # TODO: validazione date e termini di ricerca
+
+            populate_trans_tree(default_load=False)  # default_load è False perché i filtri sono attivi
+
+        def update_conti_buttons_state():
+            selected_items = conti_tree.selection()
+            stato = NORMAL if selected_items else DISABLED
+            btn_mod_conto.config(state=stato)
+            btn_correggi_saldo.config(state=stato)
+            # btn_disattiva_conto.config(state=stato) # Logica per disattiva/riattiva può essere più complessa
+
+        def update_trans_buttons_state():
+            selected_items = trans_tree.selection()
+            stato = NORMAL if selected_items else DISABLED
+            btn_mod_trans.config(state=stato)
+            btn_del_trans.config(state=stato)
+
+        def refresh_all_views_callback():
+            """Chiamata dopo operazioni CRUD per aggiornare entrambe le viste."""
+            populate_conti_tree()
+            # Mantiene la selezione del conto se possibile, altrimenti ricarica tutto
+            current_trans_title = trans_labelframe.cget("text")  # Salva titolo
+            populate_trans_tree(default_load=(selected_account_id_for_transactions is None))
+            trans_labelframe.config(text=current_trans_title)  # Ripristina titolo
+
+            # Ripristina selezione nel tree dei conti se l'ID esiste ancora
+            if app_state["selected_account_id_for_view"] and conti_tree.exists(
+                    app_state["selected_account_id_for_view"]):
+                conti_tree.selection_set(app_state["selected_account_id_for_view"])
+            else:  # Deseleziona tutto o seleziona il primo se ce n'è uno
+                on_conto_select()  # Richiama per resettare o selezionare il primo
+
+    # --- Header della Sezione ---
+    header_sec = ttkb.Frame(main_frame, padding=(10, 10))
+    header_sec.pack(fill=X)
+
+    ttkb.Label(header_sec, text="Conti e Transazioni", font=("Segoe UI", 18, "bold")).pack(side=LEFT, padx=(0, 20))
+
+    # TODO: Un pulsante "Nuova Transazione" più elaborato potrebbe essere un DropDownMenu
+    # per scegliere Entrata/Uscita/Giroconto
+    btn_nuova_transazione = ttkb.Button(header_sec, text="➕ Nuova Transazione", bootstyle=SUCCESS,
+                                        command=lambda: apri_dialog_nuova_transazione(app_root,
+                                                                                      refresh_all_views_callback))
+    btn_nuova_transazione.pack(side=RIGHT)
+    ttkb.Separator(main_frame, orient=HORIZONTAL).pack(fill=X, pady=5, padx=10)
+
+    # --- Barra Filtri Globali ---
+    filtri_frame = ttkb.Frame(main_frame, padding=(10, 0))
+    filtri_frame.pack(fill=X, pady=(0, 10))
+
+    ttkb.Label(filtri_frame, text="Periodo: Dal").pack(side=LEFT, padx=(0, 5))
+    date_start_entry = ttkb.DateEntry(filtri_frame, bootstyle=INFO, firstweekday=0, dateformat="%Y-%m-%d")
+    # Imposta data default, es. inizio mese corrente
+    date_start_entry = ttkb.DateEntry(filtri_frame, bootstyle=INFO, firstweekday=0, dateformat="%Y-%m-%d")
+    date_start_entry_ref = date_start_entry
+    oggi_dt = datetime.today()
+
+    data_inizio_str = (oggi_dt.replace(day=1) - timedelta(days=1)).replace(day=1).strftime("%Y-%m-%d")
+    date_start_entry.entry.delete(0, END)  # PULISCI PRIMA DI INSERIRE
+    date_start_entry.entry.insert(0, data_inizio_str)
+    date_start_entry.pack(side=LEFT, padx=(0, 10))
+
+    ttkb.Label(filtri_frame, text="Al").pack(side=LEFT, padx=(0, 5))
+    date_end_entry = ttkb.DateEntry(filtri_frame, bootstyle=INFO, firstweekday=0, dateformat="%Y-%m-%d")
+    date_end_entry_ref = date_end_entry
+
+    data_fine_str = oggi_dt.strftime("%Y-%m-%d")
+    date_end_entry.entry.delete(0, END)  # PULISCI PRIMA DI INSERIRE
+    date_end_entry.entry.insert(0, data_fine_str)
+    date_end_entry.pack(side=LEFT, padx=(0, 20))
+
+    ttkb.Label(filtri_frame, text="Cerca:").pack(side=LEFT, padx=(0, 5))
+    search_entry = ttkb.Entry(filtri_frame, bootstyle=INFO)
+    search_entry.pack(side=LEFT, fill=X, expand=True, padx=(0, 10))
+
+    btn_applica_filtri = ttkb.Button(filtri_frame, text="🔍 Filtra", bootstyle=(INFO, OUTLINE),
+                                     command=lambda: refresh_transactions_view(
+                                         date_start_entry.entry.get(),
+                                         date_end_entry.entry.get(),
+                                         search_entry.get()
+                                     ))
+    btn_applica_filtri.pack(side=LEFT)
+
+    # --- Layout Principale con PanedWindow ---
+    paned_window = ttkb.PanedWindow(main_frame, orient=HORIZONTAL, bootstyle=PRIMARY)
+    paned_window.pack(fill=BOTH, expand=True, padx=10, pady=5)
+
+    # --- Pannello Conti (Sinistra) ---
+    conti_panel_container = ttkb.Frame(paned_window, padding=0)  # No padding, lo gestisce il LabelFrame
+    # conti_panel_container.configure(background='blue') # Debug
+
+    conti_labelframe = ttkb.LabelFrame(conti_panel_container, text="I Miei Conti", padding=10, bootstyle=INFO)
+    conti_labelframe.pack(fill=BOTH, expand=True)
+
+    # Treeview per i conti
+    cols_conti = ("nome_conto", "saldo_attuale")
+    conti_tree = ttk.Treeview(conti_labelframe, columns=cols_conti, show="headings", height=8, selectmode="browse")
+    conti_tree.heading("nome_conto", text="Nome Conto")
+    conti_tree.heading("saldo_attuale", text="Saldo", anchor=W)
+    conti_tree.column("nome_conto", width=150, stretch=True, minwidth=150)
+    conti_tree.column("saldo_attuale", width=120, stretch=False, anchor=W, minwidth=100)
+
+    conti_tree_scroll = ttkb.Scrollbar(conti_labelframe, orient=VERTICAL, command=conti_tree.yview,
+                                       bootstyle="round-info")
+    conti_tree.configure(yscrollcommand=conti_tree_scroll.set)
+
+    conti_tree_scroll.pack(side=RIGHT, fill=Y)
+    conti_tree.pack(fill=BOTH, expand=True, pady=(0, 10))
+
+    # Frame per i bottoni dei conti
+    conti_btn_frame = ttkb.Frame(conti_labelframe)
+    conti_btn_frame.pack(fill=X)
+
+    btn_nuovo_conto = ttkb.Button(conti_btn_frame, text="➕ Nuovo", bootstyle=(SUCCESS, OUTLINE), width=10,
+                                  command=lambda: apri_dialog_nuovo_conto(app_root, refresh_all_views_callback))
+    btn_nuovo_conto.pack(side=LEFT, padx=(0, 5))
+
+    btn_mod_conto = ttkb.Button(conti_btn_frame, text="✏️ Modifica", bootstyle=(INFO, OUTLINE), width=10,
+                                state=DISABLED,
+                                command=lambda: apri_dialog_modifica_conto(app_root, conti_tree.selection(),
+                                                                           refresh_all_views_callback))
+    btn_mod_conto.pack(side=LEFT, padx=5)
+
+    btn_correggi_saldo = ttkb.Button(conti_btn_frame, text="💰 Correggi Saldo", bootstyle=(WARNING, OUTLINE), width=15,
+                                     state=DISABLED,
+                                     command=lambda: apri_dialog_correggi_saldo(app_root, conti_tree.selection(),
+                                                                                refresh_all_views_callback))
+    btn_correggi_saldo.pack(side=LEFT, padx=5)
+
+    paned_window.add(conti_panel_container, weight=1)  # Peso 1
+
+    # --- Pannello Transazioni (Destra) ---
+    trans_panel_container = ttkb.Frame(paned_window, padding=0)
+    # trans_panel_container.configure(background='green') # Debug
+
+    trans_labelframe = ttkb.LabelFrame(trans_panel_container, text="Transazioni", padding=10, bootstyle=PRIMARY)
+    trans_labelframe.pack(fill=BOTH, expand=True)
+
+    cols_trans = ("data", "conto", "descrizione", "categoria", "importo")  # Aggiunto conto
+    trans_tree = ttk.Treeview(trans_labelframe, columns=cols_trans, show="headings", height=10, selectmode="browse")
+    trans_tree.heading("data", text="Data", command=lambda: sort_treeview_column(trans_tree, "data", False))
+    trans_tree.heading("conto", text="Conto", command=lambda: sort_treeview_column(trans_tree, "conto", False))
+    trans_tree.heading("descrizione", text="Descrizione",
+                       command=lambda: sort_treeview_column(trans_tree, "descrizione", False))
+    trans_tree.heading("categoria", text="Categoria",
+                       command=lambda: sort_treeview_column(trans_tree, "categoria", False))
+    trans_tree.heading("importo", text="Importo", anchor=E,
+                       command=lambda: sort_treeview_column(trans_tree, "importo", True))  # True per numerico
+
+    trans_tree.column("data", width=120, stretch=False)
+    trans_tree.column("conto", width=120, stretch=False)
+    trans_tree.column("descrizione", width=250, stretch=True)
+    trans_tree.column("categoria", width=120, stretch=False)
+    trans_tree.column("importo", width=100, stretch=False, anchor=E)
+
+    trans_tree.tag_configure("entrata", foreground=app_root.style.colors.success)  # Usa colori del tema
+    trans_tree.tag_configure("uscita", foreground=app_root.style.colors.danger)
+    # trans_tree.tag_configure("giroconto", foreground=app_root.style.colors.info)
+
+    trans_tree_scroll_y = ttkb.Scrollbar(trans_labelframe, orient=VERTICAL, command=trans_tree.yview,
+                                         bootstyle="round-primary")
+    trans_tree.configure(yscrollcommand=trans_tree_scroll_y.set)
+    trans_tree_scroll_x = ttkb.Scrollbar(trans_labelframe, orient=HORIZONTAL, command=trans_tree.xview,
+                                         bootstyle="round-primary")
+    trans_tree.configure(xscrollcommand=trans_tree_scroll_x.set)
+
+    trans_tree_scroll_y.pack(side=RIGHT, fill=Y)
+    trans_tree_scroll_x.pack(side=BOTTOM, fill=X)  # Scrollbar X sotto
+    trans_tree.pack(fill=BOTH, expand=True, pady=(0, 0))  # No padding sotto se c'è scrollbar X
+
+    # Frame per i bottoni delle transazioni
+    trans_btn_frame = ttkb.Frame(trans_labelframe)
+    trans_btn_frame.pack(fill=X, pady=(10, 0))
+
+    btn_mod_trans = ttkb.Button(trans_btn_frame, text="✏️ Modifica Transazione", bootstyle=(INFO, OUTLINE),
+                                state=DISABLED,
+                                command=lambda: apri_dialog_modifica_transazione(app_root, trans_tree.selection(),
+                                                                                 refresh_all_views_callback))
+    btn_mod_trans.pack(side=LEFT, padx=(0, 5))
+
+    btn_del_trans = ttkb.Button(trans_btn_frame, text="🗑️ Elimina Transazione", bootstyle=(DANGER, OUTLINE),
+                                state=DISABLED,
+                                command=lambda: elimina_transazione_selezionata(trans_tree.selection(),
+                                                                                refresh_all_views_callback))
+    btn_del_trans.pack(side=LEFT, padx=5)
+
+    paned_window.add(trans_panel_container, weight=3)  # Peso 3 (più grande)
+
+    # Dentro apri_conti_e_transazioni_view in main.py
+
+    main_frame.update_idletasks()  # Necessario per avere le dimensioni corrette
+    try:
+        # Calcola la posizione e convertila esplicitamente in intero
+        sash_position = int(main_frame.winfo_width() / 2.2)
+        paned_window.sashpos(0, sash_position)
+    except tk.TclError as e:
+        print(f"Avviso: TclError impostando sashpos, riprovo tra poco - {e}")
+        main_frame.after(100, lambda: attempt_sashpos_setup(paned_window, main_frame))  # Nome standard
+
+
+def attempt_sashpos_setup(paned_window_ref, main_frame_ref):  # Funzione helper con nome standard
+    """Tenta di impostare la posizione del sash, utile per il callback after."""
+    try:
+        if main_frame_ref.winfo_width() > 100:  # Assicurati che la larghezza sia ragionevolmente valida
+            sash_position = int(main_frame_ref.winfo_width() / 2.2)
+            paned_window_ref.sashpos(0, sash_position)
+        else:
+            # Potrebbe essere ancora troppo presto, si potrebbe aggiungere un contatore di tentativi
+            # o semplicemente non fare nulla se la finestra è ancora troppo piccola.
+            # print("Larghezza main_frame ancora non pronta per sashpos nel tentativo successivo.")
+            pass
+    except tk.TclError as e_retry:
+        print(f"TclError nel tentativo successivo di impostare sashpos: {e_retry}")
+    except Exception as e_gen:  # Cattura altri possibili errori
+        print(f"Errore generico impostando sashpos nel tentativo successivo: {e_gen}")
+
+    # Binding Eventi
+    conti_tree.bind("<<TreeviewSelect>>", on_conto_select)
+    trans_tree.bind("<<TreeviewSelect>>", lambda e: update_trans_buttons_state())
+
+    # Caricamento iniziale dati
+    refresh_all_views_callback()  # Carica e imposta tutto
+    on_conto_select()  # Per impostare lo stato iniziale del pannello transazioni
+
+# --- Funzioni di dialogo (da definire) ---
+def apri_dialog_nuova_transazione(app_root_param, callback_refresh):
+    # Qui andrà la UI per la nuova finestra Toplevel per aggiungere transazioni
+    # Dovrà chiamare services.registra_nuova_transazione o services.esegui_giroconto
+    # e poi callback_refresh()
+    Messagebox.show_info("TODO: Finestra Nuova Transazione", "Implementami!", parent=app_root_param)
+    # Esempio di chiamata (dovrai raccogliere i dati dalla UI del dialogo):
+    # try:
+    #     services.registra_nuova_transazione(id_conto_fk, importo_str, cat, desc, data_str)
+    #     callback_refresh()
+    # except Exception as e:
+    #     Messagebox.show_error(str(e), "Errore Transazione")
+
+
+def apri_dialog_nuovo_conto(app_root_param, callback_refresh):
+    # UI per Toplevel per aggiungere un nuovo conto
+    # Chiama services.crea_nuovo_conto e poi callback_refresh()
+    Messagebox.show_info("TODO: Finestra Nuovo Conto", "Implementami!", parent=app_root_param)
+
+
+def apri_dialog_modifica_conto(app_root_param, selected_item_ids, callback_refresh):
+    if not selected_item_ids: return
+    id_conto_da_modificare = selected_item_ids[0]  # Prende il primo selezionato
+    # UI per Toplevel per modificare il conto con ID id_conto_da_modificare
+    # Chiama services.modifica_nome_conto (o altri servizi) e poi callback_refresh()
+    Messagebox.show_info(f"TODO: Modifica Conto ID {id_conto_da_modificare}", "Implementami!", parent=app_root_param)
+
+
+def apri_dialog_correggi_saldo(app_root_param, selected_item_ids, callback_refresh):
+    if not selected_item_ids: return
+    id_conto_da_correggere = selected_item_ids[0]
+    Messagebox.show_info(f"TODO: Correggi Saldo Conto ID {id_conto_da_correggere}", "Implementami!",
+                         parent=app_root_param)
+    # try:
+    #    nuovo_saldo_str = simpledialog.askstring("Correggi Saldo", "Inserisci il nuovo saldo corretto:")
+    #    if nuovo_saldo_str is not None:
+    #        services.correggi_saldo_manuale(id_conto_da_correggere, nuovo_saldo_str) # Data opzionale
+    #        callback_refresh()
+    # except Exception as e:
+    #    Messagebox.show_error(str(e), "Errore Correzione Saldo")
+
+
+def apri_dialog_modifica_transazione(app_root_param, selected_item_ids, callback_refresh):
+    if not selected_item_ids: return
+    id_trans_da_modificare = selected_item_ids[0]
+    Messagebox.show_info(f"TODO: Modifica Transazione ID {id_trans_da_modificare}", "Implementami!",
+                         parent=app_root_param)
+
+
+def elimina_transazione_selezionata(selected_item_ids, callback_refresh):
+    if not selected_item_ids: return
+    id_trans_da_eliminare = selected_item_ids[0]
+    if Messagebox.okcancel(f"Confermi eliminazione transazione ID {id_trans_da_eliminare}?", "Conferma Eliminazione",
+                           parent=app_state["app_root_ref"]):
+        try:
+            services.elimina_transazione_esistente(id_trans_da_eliminare)
+            callback_refresh()
+            Messagebox.show_info("Transazione eliminata.", "Successo")
+        except Exception as e:
+            Messagebox.show_error(str(e), "Errore Eliminazione")
+
+
+# Funzione helper per ordinare Treeview (opzionale, ma carina)
+def sort_treeview_column(tv, col, reverse):
+    # Estrai i dati e l'iid di ogni riga
+    data_list = [(tv.set(k, col), k) for k in tv.get_children('')]
+
+    # Tenta la conversione a float per l'ordinamento numerico, altrimenti ordina come stringa
+    try:
+        # Per l'importo, rimuovi "€" e spazi, converti in float
+        if col == "importo":
+            data_list = [
+                (float(val.replace("€", "").replace(".", "").replace(",", ".") if isinstance(val, str) else val), k) for
+                val, k in data_list]
+        elif col == "data":  # Ordina per data effettiva, non stringa formattata
+            # Per la data, devi ottenere il valore originale non formattato o riconvertire
+            # Questo è un po' più complesso se non salvi la data originale nel treeview item
+            # Per ora, ordina la stringa come data se possibile, altrimenti alfanumerico
+            def convert_date_for_sort(date_str):
+                try:  # Tenta di parsare come DD/MM/YYYY HH:MM
+                    return datetime.strptime(date_str, '%d/%m/%Y %H:%M')
+                except ValueError:  # Altrimenti, come stringa
+                    return date_str
+
+            data_list = [(convert_date_for_sort(val), k) for val, k in data_list]
+        else:  # Ordinamento stringa (case-insensitive)
+            data_list = [(str(val).lower(), k) for val, k in data_list]
+
+    except ValueError:  # Se la conversione a float fallisce per qualche riga, ordina come stringhe
+        data_list.sort(key=lambda t: str(t[0]).lower(), reverse=reverse)
+    else:  # Se la conversione ha avuto successo (o era stringa)
+        data_list.sort(reverse=reverse)
+
+    # Riordina gli item nel treeview
+    for index, (val, k) in enumerate(data_list):
+        tv.move(k, '', index)
+
+    # Inverti la direzione per il prossimo click sulla stessa colonna
+    tv.heading(col, command=lambda: sort_treeview_column(tv, col, not reverse))
+
+
 def saluto_random(nome="Utente"):
     ora = datetime.now().hour
     saluto = "Ciao"
@@ -576,8 +994,7 @@ def main():
         pady=(20, 25), padx=10)
     nav_buttons_config = [
         ("🏠 Dashboard", lambda: apri_dashboard(main_content_frame, app)),
-        ("💼 Conti", lambda: apri_conti(main_content_frame, app)),
-        ("📜 Transazioni", lambda: apri_transazioni(main_content_frame, app)),
+        ("💼 Conti e Transazioni", lambda: apri_conti_e_transazioni_view(main_content_frame, app)),
         ("📈 Investimenti", lambda: apri_investimenti(main_content_frame, app)), ]
     for text, command in nav_buttons_config:
         ttkb.Button(sidebar, text=text, bootstyle=(SECONDARY, DARK), command=command).pack(fill=X, padx=10, pady=6)
