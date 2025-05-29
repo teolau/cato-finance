@@ -6,6 +6,9 @@ from tkinter import messagebox
 from datetime import datetime
 import json
 import os
+import database
+import services
+
 
 # --- Costanti e Configurazioni Globali ---
 DATA_DIR = "data"
@@ -54,28 +57,48 @@ app_state = {
 def widget_saldo(parent_for_this_widget_content):
     frame = ttkb.LabelFrame(parent_for_this_widget_content, text="Saldo Totale", padding=10)
     try:
-        conti = carica_conti()
-        saldo_totale = sum(float(s) for s in conti.values())
+        conti = services.ottieni_tutti_i_conti(solo_attivi=True)  # Chiama il servizio
+        if conti is None:  # services.py potrebbe restituire None in caso di errore grave non gestito
+            raise Exception("Errore nel caricamento dei conti.")
+
+        saldo_totale = sum(float(c['saldo_attuale']) for c in conti)
+
         ttkb.Label(frame, text=f"€ {saldo_totale:.2f}", font=("Segoe UI", 16)).pack(pady=5)
-        for nome, saldo in conti.items():
-            ttkb.Label(frame, text=f"{nome}: € {float(saldo):.2f}", font=("Segoe UI", 9), bootstyle=SECONDARY).pack(
-                anchor="w", padx=10)
+        if not conti:
+            ttkb.Label(frame, text="Nessun conto attivo trovato.", bootstyle=INFO).pack(pady=5)
+        else:
+            for conto_dict in conti:
+                ttkb.Label(frame, text=f"{conto_dict['nome_conto']}: € {float(conto_dict['saldo_attuale']):.2f}",
+                           font=("Segoe UI", 9), bootstyle=SECONDARY).pack(anchor="w", padx=10)
     except Exception as e:
-        ttkb.Label(frame, text=f"Errore dati: {e}", bootstyle=DANGER).pack()
-    return frame  # Questo frame (LabelFrame) è il contenuto VISIVO del widget
+        print(f"Errore in widget_saldo: {e}")
+        ttkb.Label(frame, text=f"Errore caricamento saldi:\n{e}", bootstyle=DANGER, wraplength=200).pack(pady=5)
+    return frame
 
 
 def widget_transazioni(parent_for_this_widget_content):
     frame = ttkb.LabelFrame(parent_for_this_widget_content, text="Ultime Transazioni", padding=10)
     try:
-        transazioni = carica_transazioni()
-        for tr in sorted(transazioni, key=lambda x: x["data"], reverse=True)[:5]:
-            importo = float(tr['importo'])
-            riga = f"{tr['data']} | {tr.get('descrizione', 'N/D')[:20]}... | {tr['categoria']} | {importo:.2f} €"
-            colore = SUCCESS if importo >= 0 else DANGER
-            ttkb.Label(frame, text=riga, font=("Segoe UI", 10), bootstyle=colore).pack(anchor="w", fill=X)
+        # Recupera, ad esempio, le ultime 5 transazioni da tutti i conti
+        # services.ottieni_transazioni_filtrate non ha ancora un ordinamento per "ultime" globale,
+        # ma get_transazioni_db ordina per data_transazione DESC.
+        transazioni = services.ottieni_transazioni_filtrate(limit=5)  # Chiama il servizio
+        if transazioni is None:
+            raise Exception("Errore nel caricamento delle transazioni.")
+
+        if not transazioni:
+            ttkb.Label(frame, text="Nessuna transazione trovata.", bootstyle=INFO).pack(pady=5)
+        else:
+            # Il Treeview è più adatto per le transazioni, ma per un widget semplice usiamo Label
+            for tr in transazioni:  # Ricorda che get_transazioni_db ora restituisce anche nome_conto
+                importo = float(tr['importo'])
+                # nome_conto_trans = tr.get('nome_conto', tr['id_conto_fk']) # Nome conto è già nel dict da get_transazioni_db
+                riga = f"{datetime.strptime(tr['data_transazione'], '%Y-%m-%d %H:%M:%S').strftime('%d/%m')} | {tr['nome_conto'][:10]}.. | {tr['descrizione'][:15]}... | {importo:.2f}€"
+                colore = SUCCESS if importo >= 0 else DANGER
+                ttkb.Label(frame, text=riga, font=("Segoe UI", 9), bootstyle=colore).pack(anchor="w", fill=X)
     except Exception as e:
-        ttkb.Label(frame, text=f"Errore caricamento dati: {e}", bootstyle=DANGER).pack()
+        print(f"Errore in widget_transazioni: {e}")
+        ttkb.Label(frame, text=f"Errore caricamento transazioni:\n{e}", bootstyle=DANGER, wraplength=200).pack(pady=5)
     return frame
 
 
@@ -89,17 +112,39 @@ def widget_investimenti(parent_for_this_widget_content):
 def widget_bilancio(parent_for_this_widget_content):
     frame = ttkb.LabelFrame(parent_for_this_widget_content, text="Bilancio Mensile", padding=10)
     try:
-        transazioni = carica_transazioni()
-        transazioni_mese = [t for t in transazioni if t["data"].startswith(datetime.today().strftime("%Y-%m"))]
+        oggi = datetime.now()
+        primo_giorno_mese_dt = oggi.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        # Per l'ultimo giorno del mese, vai al primo del prossimo e togli un giorno
+        # (o usa calendar.monthrange)
+        import calendar
+        _, ultimo_giorno_num = calendar.monthrange(oggi.year, oggi.month)
+        ultimo_giorno_mese_dt = oggi.replace(day=ultimo_giorno_num, hour=23, minute=59, second=59, microsecond=999999)
+
+        # Converti in stringhe per la funzione di servizio/db se necessario,
+        # o modifica il servizio per accettare datetime
+        data_inizio_str = primo_giorno_mese_dt.strftime("%Y-%m-%d %H:%M:%S")
+        data_fine_str = ultimo_giorno_mese_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+        transazioni_mese = services.ottieni_transazioni_filtrate(
+            data_inizio_str=data_inizio_str,
+            data_fine_str=data_fine_str
+        )
+        if transazioni_mese is None:
+            raise Exception("Errore caricamento transazioni per bilancio.")
+
         entrate = sum(float(t["importo"]) for t in transazioni_mese if float(t["importo"]) > 0)
-        uscite = -sum(float(t["importo"]) for t in transazioni_mese if float(t["importo"]) < 0)
+        uscite = abs(sum(
+            float(t["importo"]) for t in transazioni_mese if float(t["importo"]) < 0))  # Valore assoluto per le uscite
         bilancio = entrate - uscite
+
         ttkb.Label(frame, text=f"Entrate: € {entrate:.2f}", font=("Segoe UI", 10), bootstyle=SUCCESS).pack(anchor="w")
         ttkb.Label(frame, text=f"Uscite: € {uscite:.2f}", font=("Segoe UI", 10), bootstyle=DANGER).pack(anchor="w")
         ttkb.Label(frame, text=f"Bilancio: € {bilancio:.2f}", font=("Segoe UI", 12, "bold"),
                    bootstyle=(SUCCESS if bilancio >= 0 else DANGER)).pack(anchor="w", pady=(5, 0))
     except Exception as e:
-        ttkb.Label(frame, text=f"Errore caricamento dati: {e}", bootstyle=DANGER).pack()
+        print(f"Errore in widget_bilancio: {e}")
+        ttkb.Label(frame, text=f"Errore calcolo bilancio:\n{e}", bootstyle=DANGER, wraplength=200).pack(pady=5)
     return frame
 
 
@@ -562,6 +607,7 @@ def main():
 
 
 if __name__ == "__main__":
+    database.initialize_database()
     os.makedirs(DATA_DIR, exist_ok=True)
     if not os.path.exists(DEFAULT_CONFIG_PATH_MAIN):
         default_widgets_config = []
