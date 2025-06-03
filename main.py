@@ -9,6 +9,8 @@ import services
 from ttkbootstrap.constants import *
 from ttkbootstrap.scrolled import ScrolledFrame # Utile per contenuti lunghi
 from ttkbootstrap.dialogs import Messagebox # Per dialoghi ttkbootstrap-styled
+from ttkbootstrap.toast import ToastNotification
+
 
 
 # --- Costanti e Configurazioni Globali ---
@@ -46,18 +48,26 @@ app_state = {
     "dashboard_config": None,
     "main_frame_ref": None,
     "app_root_ref": None,
-    "widget_frame_ref": None,
-    "displayed_widgets_map": {},
-    "drag_data": {},
+    "widget_frame_ref": None, # Per la dashboard
+    "displayed_widgets_map": {}, # Per la dashboard
+    "drag_data": {}, # Per la dashboard
+    "widget_to_place_info": None, # Per la dashboard edit mode
+
+    # Stato per la vista Conti e Transazioni (se non già qui, potresti aggiungerli)
     "selected_account_id_for_view": None,
-    "widget_to_place_info": None
+
+    #VISTA INVESTIMENTI
+    "inv_tree_ref": None,
+    "inv_btn_modifica_ref": None,
+    "inv_btn_aggiorna_val_ref": None,
+    "inv_btn_acquista_ref": None,
+    "inv_btn_vendi_ref": None,
+    "inv_btn_chiudi_pos_ref": None,
+    "inv_lbl_valore_tot_ref": None # Per il riepilogo
 }
 
 
-# --- Funzioni Factory per i Widget della Dashboard ---
-# Il parametro 'parent_for_this_widget_content' è il frame in cui il contenuto
-# effettivo del widget (es. un LabelFrame) deve essere inserito.
-# In modalità modifica, sarà il 'wrapper'. In modalità visualizzazione, sarà 'widget_frame_ref'.
+# --- Funzioni Factory per i Widget della Dashboard ---.
 
 def widget_saldo(parent_for_this_widget_content):
     frame = ttkb.LabelFrame(parent_for_this_widget_content, text="Saldo Totale", padding=10)
@@ -515,10 +525,6 @@ def apri_dashboard(main_frame_param, app_root_param):
     render_dashboard()
 
 
-# Il tuo main.py ... lascio invariate le parti precedenti
-
-# ... (TUTTO IL CODICE PRECEDENTE RESTA INVARIATO) ...
-
 def apri_conti_e_transazioni_view(main_frame, app_root):
     # Usa le variabili globali definite a livello di modulo per i riferimenti ai widget
     global app_state, conti_tree, trans_tree, trans_labelframe
@@ -555,13 +561,13 @@ def apri_conti_e_transazioni_view(main_frame, app_root):
         # Caricamento iniziale dati
         refresh_all_views_callback()  # Carica e imposta tutto
         on_conto_select()  # Per impostare lo stato iniziale del pannello transazioni
-        
+
     def update_conti_buttons_state():
-        if not conti_tree or not btn_mod_conto or not btn_correggi_saldo: return
+        if not conti_tree or not btn_gestisci_conto: return
+
         selected_items = conti_tree.selection()
         stato = NORMAL if selected_items else DISABLED
-        btn_mod_conto.config(state=stato)
-        btn_correggi_saldo.config(state=stato)
+        btn_gestisci_conto.config(state=stato)
 
     def update_trans_buttons_state():
         if not trans_tree or not btn_mod_trans or not btn_del_trans: return
@@ -740,7 +746,7 @@ def apri_conti_e_transazioni_view(main_frame, app_root):
     search_entry = search_entry_widget  # Assegna
     search_entry.pack(side=LEFT, fill=X, expand=True, padx=(0, 10))
 
-    btn_applica_filtri = ttkb.Button(filtri_frame, text="🔍 Filtra", bootstyle=(INFO, OUTLINE),
+    btn_applica_filtri = ttkb.Button(filtri_frame, text="🔍", bootstyle=(INFO, OUTLINE),
                                      command=refresh_transactions_view)  # Ora refresh_transactions_view è definita
     btn_applica_filtri.pack(side=LEFT)
 
@@ -771,19 +777,15 @@ def apri_conti_e_transazioni_view(main_frame, app_root):
     btn_nuovo_conto = ttkb.Button(conti_btn_frame, text="➕ Nuovo", bootstyle=(SUCCESS, OUTLINE),  # width=10 rimosso
                                   command=lambda: apri_dialog_nuovo_conto(app_root, refresh_all_views_callback))
     btn_nuovo_conto.grid(row=0, column=0, padx=(0, 2), sticky="ew")  # Usa grid
-    btn_mod_conto_widget = ttkb.Button(conti_btn_frame, text="✏️ Modifica", bootstyle=(INFO, OUTLINE), state=DISABLED,
-                                       command=lambda: apri_dialog_modifica_conto(app_root, conti_tree.selection(),
-                                                                                  refresh_all_views_callback))
-    btn_mod_conto = btn_mod_conto_widget  # Assegna
-    btn_mod_conto.grid(row=0, column=1, padx=2, sticky="ew")  # Usa grid
-    btn_correggi_saldo_widget = ttkb.Button(conti_btn_frame, text="💰 Correggi", bootstyle=(WARNING, OUTLINE),
-                                            state=DISABLED,  # Testo abbreviato
-                                            command=lambda: apri_dialog_correggi_saldo(app_root, conti_tree.selection(),
+    btn_gestisci_conto_widget = ttkb.Button(conti_btn_frame, text="⚙️ Gestisci Conto",
+                                            bootstyle=(PRIMARY, OUTLINE),  # Stile generico
+                                            state=DISABLED,
+                                            command=lambda: apri_dialog_gestisci_conto(app_root,
                                                                                        refresh_all_views_callback))
-    btn_correggi_saldo = btn_correggi_saldo_widget  # Assegna
-    btn_correggi_saldo.grid(row=0, column=2, padx=(2, 0), sticky="ew")  # Usa grid
+    btn_gestisci_conto = btn_gestisci_conto_widget  # Assegna alla variabile che userà update_conti_buttons_state
+    btn_gestisci_conto.grid(row=0, column=1, columnspan=2, padx=(2, 0), sticky="ew")  # Occupa le due colonne rimanenti
 
-    # CORREZIONE: Rimuovi minsize da paned_window.add
+
     paned_window.add(conti_panel_container, weight=1)
 
     # --- Pannello Transazioni (Destra) ---
@@ -827,21 +829,19 @@ def apri_conti_e_transazioni_view(main_frame, app_root):
     btn_mod_trans_widget = ttkb.Button(trans_btn_frame, text="✏️ Modifica Transazione", bootstyle=(INFO, OUTLINE),
                                        state=DISABLED,
                                        command=lambda: apri_dialog_modifica_transazione(app_root,
-                                                                                        trans_tree.selection(),
                                                                                         refresh_all_views_callback))
     btn_mod_trans = btn_mod_trans_widget  # Assegna
     btn_mod_trans.pack(side=LEFT, padx=(0, 5))
     btn_del_trans_widget = ttkb.Button(trans_btn_frame, text="🗑️ Elimina Transazione", bootstyle=(DANGER, OUTLINE),
                                        state=DISABLED,
-                                       command=lambda: elimina_transazione_selezionata(trans_tree.selection(),
-                                                                                       refresh_all_views_callback))
+                                       command=lambda: elimina_transazione_selezionata(refresh_all_views_callback))
     btn_del_trans = btn_del_trans_widget  # Assegna
     btn_del_trans.pack(side=LEFT, padx=5)
     # CORREZIONE: Rimuovi minsize
     paned_window.add(trans_panel_container, weight=2)
 
     main_frame.update_idletasks()
-    attempt_sashpos_setup(paned_window, main_frame, sash_divisor=2.5)  # Modificato sash_divisor
+    attempt_sashpos_setup(paned_window, main_frame, sash_divisor=2.25)  # Modificato sash_divisor
 
     # Binding Eventi (dopo che tutti i widget UI sono stati creati e i loro ref sono stati assegnati)
     conti_tree.bind("<<TreeviewSelect>>", on_conto_select)  # Usa la var locale/globale corretta
@@ -851,75 +851,854 @@ def apri_conti_e_transazioni_view(main_frame, app_root):
     refresh_all_views_callback()
 
 
-# ... (attempt_sashpos_setup come prima, ma assicurati che i _ct_ref siano validi quando chiamati)
-# ... (tutte le funzioni apri_dialog_X come nel tuo codice)
-# ... (sort_treeview_column come nel tuo codice)
-# ... (saluto_random, navigate_away_from_dashboard, apri_conti, apri_transazioni, apri_investimenti, apri_impostazioni, main, if __name__ come nel tuo codice)
+def apri_dialog_gestisci_conto(app_root_param, callback_refresh):
+    if not conti_tree or not conti_tree.selection():  # conti_tree deve essere accessibile
+        Messagebox.show_info("Nessuna Selezione", "Seleziona un conto da gestire.", parent=app_root_param)
+        return
+
+    selected_item_id_str = conti_tree.selection()[0]
+    id_conto_selezionato = int(selected_item_id_str)
+
+    conto_originale = services.ottieni_conto_per_id(id_conto_selezionato)
+    if not conto_originale:
+        Messagebox.show_error(f"Conto ID {id_conto_selezionato} non trovato.", "Errore", parent=app_root_param)
+        callback_refresh()
+        return
+
+    dialog = ttkb.Toplevel(master=app_root_param, title=f"⚙️ Gestisci Conto: {conto_originale['nome_conto']}")
+    dialog.geometry("550x400")  # Un po' più grande per le schede
+    dialog.transient(app_root_param)
+    dialog.grab_set()
+    dialog.resizable(False, False)  # O True se vuoi permettere resize
+
+    # --- Notebook per le Schede ---
+    notebook = ttk.Notebook(dialog, bootstyle="primary")  # Usa ttk.Notebook, non ttkb.Notebook se non esiste
+    notebook.pack(fill=BOTH, expand=True, padx=10, pady=10)
+
+    # --- Scheda 1: Dettagli Conto ---
+    tab_dettagli = ttkb.Frame(notebook, padding=15)
+    notebook.add(tab_dettagli, text="Dettagli Conto")
+
+    # Variabili e Campi per la scheda Dettagli (come in apri_dialog_modifica_conto)
+    nome_conto_var_gest = tk.StringVar(value=conto_originale['nome_conto'])
+    tipo_conto_var_gest = tk.StringVar(value=conto_originale.get('tipo_conto', "Bancario"))
+    valuta_var_gest = tk.StringVar(value=conto_originale.get('valuta', "EUR"))
+    # Opzionale: stato attivo/inattivo
+    attivo_var_gest = tk.BooleanVar(value=bool(conto_originale.get('attivo', 1)))
+
+    ttkb.Label(tab_dettagli, text="Nome Conto:", anchor=W).grid(row=0, column=0, sticky="ew", pady=5, padx=(0, 10))
+    nome_conto_entry_gest = ttkb.Entry(tab_dettagli, textvariable=nome_conto_var_gest, bootstyle=PRIMARY)
+    nome_conto_entry_gest.grid(row=0, column=1, sticky="ew", pady=5)
+    nome_conto_entry_gest.focus_set()
+    nome_conto_entry_gest.select_range(0, END)
+
+    tipi_conto_comuni = ["Bancario", "Carta di Credito", "Contanti", "Risparmio", "Investimento", "Altro"]
+    ttkb.Label(tab_dettagli, text="Tipo Conto:", anchor=W).grid(row=1, column=0, sticky="ew", pady=5, padx=(0, 10))
+    tipo_conto_combo_gest = ttkb.Combobox(tab_dettagli, textvariable=tipo_conto_var_gest, values=tipi_conto_comuni,
+                                          bootstyle=PRIMARY, state="readonly")
+    tipo_conto_combo_gest.grid(row=1, column=1, sticky="ew", pady=5)
+
+    ttkb.Label(tab_dettagli, text="Valuta:", anchor=W).grid(row=2, column=0, sticky="ew", pady=5, padx=(0, 10))
+    valuta_entry_gest = ttkb.Entry(tab_dettagli, textvariable=valuta_var_gest, bootstyle=PRIMARY)
+    valuta_entry_gest.grid(row=2, column=1, sticky="ew", pady=5)
+
+    # Checkbutton per stato Attivo/Inattivo
+    chk_attivo_gest = ttkb.Checkbutton(tab_dettagli, variable=attivo_var_gest, text="Conto Attivo",
+                                       bootstyle="primary-round-toggle")
+    chk_attivo_gest.grid(row=3, column=1, sticky="w", pady=(10, 5))
+
+    tab_dettagli.columnconfigure(1, weight=1)
+
+    def on_salva_dettagli_conto():
+        nuovo_nome = nome_conto_var_gest.get()
+        nuovo_tipo = tipo_conto_var_gest.get()
+        nuova_valuta = valuta_var_gest.get()
+        nuovo_stato_attivo = attivo_var_gest.get()
+        modifiche_effettuate = False
+        try:
+            if nuovo_nome != conto_originale['nome_conto']:
+                services.modifica_nome_conto(id_conto_selezionato, nuovo_nome)
+                modifiche_effettuate = True
+
+            if nuovo_tipo != conto_originale.get('tipo_conto') or \
+                    nuova_valuta != conto_originale.get('valuta') or \
+                    nuovo_stato_attivo != bool(conto_originale.get('attivo')):
+                # Aggiorna tipo, valuta e stato attivo direttamente o tramite un servizio dedicato
+                conn = database.get_db_connection()
+                cursor = conn.cursor()
+                cursor.execute("UPDATE conti SET tipo_conto = ?, valuta = ?, attivo = ? WHERE id_conto = ?",
+                               (nuovo_tipo, nuova_valuta, 1 if nuovo_stato_attivo else 0, id_conto_selezionato))
+                conn.commit()
+                conn.close()
+                modifiche_effettuate = True
+
+            if modifiche_effettuate:
+                toast = ToastNotification(
+                    title="Dettagli Conto",
+                    message="Dettagli del conto aggiornati con successo!",
+                    duration=3000,  # Millisecondi (3 secondi)
+                    bootstyle=SUCCESS,  # O INFO
+                    alert=True,  # Fa un suono
+                    position=(20, 20, 'se')
+                    # Posizione: 20px dal basso, 20px da destra, angolo sud-est (rispetto alla root)
+                )
+                toast.show_toast()
+
+                callback_refresh()
+                # Se il nome è cambiato, aggiorna il titolo del dialogo
+                conto_aggiornato = services.ottieni_conto_per_id(
+                    id_conto_selezionato)  # Ricarica per avere i dati freschi
+                if conto_aggiornato:
+                    dialog.title(f"⚙️ Gestisci Conto: {conto_aggiornato['nome_conto']}")
+                    # Aggiorna anche conto_originale per la scheda correggi saldo
+                    global conto_originale_ref  # Se necessario per accedervi da altre funzioni interne al dialogo
+                    conto_originale.update(conto_aggiornato)  # Aggiorna il dizionario
+                    lbl_saldo_attuale_corr.config(
+                        text=f"{float(conto_originale['saldo_attuale']):.2f} {conto_originale.get('valuta', 'EUR')}")
+                    nuovo_saldo_entry_corr.delete(0, END)
+                    nuovo_saldo_entry_corr.insert(0, f"{float(conto_originale['saldo_attuale']):.2f}")
 
 
-# --- Funzioni di dialogo (da definire) ---
+        except ValueError as ve:
+            Messagebox.show_warning(str(ve), "Dati Non Validi", parent=dialog, alert=True)
+        except Exception as e:
+            Messagebox.show_error(f"Errore imprevisto:\n{e}", "Errore Modifica Conto", parent=dialog, alert=True)
+
+    btn_salva_dettagli = ttkb.Button(tab_dettagli, text="Salva Dettagli", command=on_salva_dettagli_conto,
+                                     bootstyle=(SUCCESS, OUTLINE))
+    btn_salva_dettagli.grid(row=4, column=1, sticky="e", pady=(15, 0))
+
+    # --- Scheda 2: Correggi Saldo ---
+    tab_correggi = ttkb.Frame(notebook, padding=15)
+    notebook.add(tab_correggi, text="Correggi Saldo")
+
+    # Campi per la scheda Correggi Saldo (come in apri_dialog_correggi_saldo)
+    ttkb.Label(tab_correggi, text=f"Saldo Attuale:", anchor=W).grid(row=0, column=0, sticky="ew", pady=5, padx=(0, 10))
+    lbl_saldo_attuale_corr = ttkb.Label(tab_correggi,
+                                        text=f"{float(conto_originale['saldo_attuale']):.2f} {conto_originale.get('valuta', 'EUR')}",
+                                        anchor=E)
+    lbl_saldo_attuale_corr.grid(row=0, column=1, sticky="ew", pady=5)
+
+    ttkb.Label(tab_correggi, text="Nuovo Saldo Desiderato:", anchor=W).grid(row=1, column=0, sticky="ew", pady=5,
+                                                                            padx=(0, 10))
+    nuovo_saldo_entry_corr = ttkb.Entry(tab_correggi, bootstyle=PRIMARY)
+    nuovo_saldo_entry_corr.grid(row=1, column=1, sticky="ew", pady=5)
+    nuovo_saldo_entry_corr.insert(0, f"{float(conto_originale['saldo_attuale']):.2f}")
+
+    ttkb.Label(tab_correggi, text="Data Correzione:", anchor=W).grid(row=2, column=0, sticky="ew", pady=5, padx=(0, 10))
+    data_correzione_entry_corr = ttkb.DateEntry(tab_correggi, bootstyle=PRIMARY, dateformat="%Y-%m-%d", firstweekday=0)
+    data_correzione_entry_corr.grid(row=2, column=1, sticky="ew", pady=5)
+
+    tab_correggi.columnconfigure(1, weight=1)
+
+    def on_applica_correzione_saldo():
+        nuovo_saldo_str = nuovo_saldo_entry_corr.get()
+        data_corr_str_ui = data_correzione_entry_corr.entry.get()
+        try:
+            services.correggi_saldo_manuale(id_conto_selezionato, nuovo_saldo_str,
+                                            data_correzione_input=data_corr_str_ui)
+            toast = ToastNotification(
+                title="Correzione Saldo",
+                message="Saldo corretto e transazione di correzione registrata.",
+                duration=3000,
+                bootstyle=SUCCESS,
+                alert=True,
+                position=(20, 20, 'se')
+            )
+            toast.show_toast()
+            # Aggiorna il saldo visualizzato nella scheda e il titolo del dialogo se necessario
+            conto_aggiornato_post_corr = services.ottieni_conto_per_id(id_conto_selezionato)
+            if conto_aggiornato_post_corr:
+                global conto_originale_ref  # Se necessario
+                conto_originale.update(conto_aggiornato_post_corr)  # Aggiorna il dizionario locale
+                lbl_saldo_attuale_corr.config(
+                    text=f"{float(conto_originale['saldo_attuale']):.2f} {conto_originale.get('valuta', 'EUR')}")
+                nuovo_saldo_entry_corr.delete(0, END)
+                nuovo_saldo_entry_corr.insert(0, f"{float(conto_originale['saldo_attuale']):.2f}")
+                dialog.title(
+                    f"⚙️ Gestisci Conto: {conto_originale['nome_conto']}")  # Ricarica il titolo con i dati aggiornati
+            callback_refresh()  # Aggiorna la vista principale
+        except ValueError as ve:
+            Messagebox.show_warning(str(ve), "Dati Non Validi", parent=dialog, alert=True)
+        except Exception as e:
+            Messagebox.show_error(f"Errore imprevisto:\n{e}", "Errore Correzione Saldo", parent=dialog, alert=True)
+
+    btn_applica_correzione = ttkb.Button(tab_correggi, text="Applica Correzione", command=on_applica_correzione_saldo,
+                                         bootstyle=(SUCCESS, OUTLINE))
+    btn_applica_correzione.grid(row=3, column=1, sticky="e", pady=(15, 0))
+
+    # --- Pulsante Chiudi Dialogo ---
+    # Messo fuori dal notebook, in fondo al dialogo principale
+    action_frame_dialog = ttkb.Frame(dialog, padding=(0, 10, 0, 0))
+    action_frame_dialog.pack(fill=X, side=BOTTOM, padx=15, pady=(0, 10))
+
+    # Pulsante "Elimina Conto" (pericoloso, da usare con cautela)
+    def on_elimina_conto_gestisci():
+        if Messagebox.yesno(
+                f"Sei sicuro di voler eliminare il conto '{conto_originale['nome_conto']}'?\nQuesta operazione è irreversibile e potrebbe fallire se ci sono transazioni associate.",
+                "Conferma Eliminazione Conto", parent=dialog, alert=True) == "Yes":
+            try:
+                services.elimina_definitivamente_conto(id_conto_selezionato)
+                toast = ToastNotification(
+                    title="Conto Eliminato",
+                    message=f"Il conto '{conto_originale['nome_conto']}' è stato eliminato.",
+                    duration=3000, bootstyle=INFO, alert=True, position=(20, 20, 'se'))
+                toast.show_toast()
+                dialog.destroy()  # Chiudi il dialogo GESTISCI dopo l'eliminazione del conto
+                callback_refresh()
+            except Exception as e:
+                Messagebox.show_error(f"Impossibile eliminare il conto:\n{e}", "Errore Eliminazione", parent=dialog,
+                                      alert=True)
+
+    btn_elimina_conto = ttkb.Button(action_frame_dialog, text="🗑️ Elimina Conto", command=on_elimina_conto_gestisci,
+                                    bootstyle=DANGER)
+    btn_elimina_conto.pack(side=LEFT, padx=(0, 5))
+
+    btn_chiudi_dialog = ttkb.Button(action_frame_dialog, text="Chiudi", command=dialog.destroy, bootstyle=SECONDARY)
+    btn_chiudi_dialog.pack(side=RIGHT)
+
+    dialog.bind('<Escape>', lambda event: dialog.destroy())
+    # Non c'è un'azione di "Invio" globale qui perché dipende dalla scheda attiva
+
+    dialog.update_idletasks()
+    # ... (codice centratura dialogo) ...
+    parent_x = app_root_param.winfo_x();
+    parent_y = app_root_param.winfo_y()
+    parent_width = app_root_param.winfo_width();
+    parent_height = app_root_param.winfo_height()
+    dialog_width = dialog.winfo_width();
+    dialog_height = dialog.winfo_height()
+    x_pos = parent_x + (parent_width // 2) - (dialog_width // 2);
+    y_pos = parent_y + (parent_height // 2) - (dialog_height // 2)
+    dialog.geometry(f"+{x_pos}+{y_pos}")
+    dialog.after(50, dialog.lift)
+    dialog.after(100, nome_conto_entry_gest.focus_force)
+
+
 def apri_dialog_nuova_transazione(app_root_param, callback_refresh):
-    # Qui andrà la UI per la nuova finestra Toplevel per aggiungere transazioni
-    # Dovrà chiamare services.registra_nuova_transazione o services.esegui_giroconto
-    # e poi callback_refresh()
-    Messagebox.show_info("TODO: Finestra Nuova Transazione", "Implementami!", parent=app_root_param)
-    # Esempio di chiamata (dovrai raccogliere i dati dalla UI del dialogo):
-    # try:
-    #     services.registra_nuova_transazione(id_conto_fk, importo_str, cat, desc, data_str)
-    #     callback_refresh()
-    # except Exception as e:
-    #     Messagebox.show_error(str(e), "Errore Transazione")
+    dialog = ttkb.Toplevel(master=app_root_param, title="➕ Nuova Transazione")
+    # Aumenta un po' le dimensioni per farci stare tutti i campi
+    dialog.geometry("550x460")  # Regola se necessario
+    dialog.transient(app_root_param)
+    dialog.grab_set()
+    dialog.resizable(False, False)
+
+    main_form_frame = ttkb.Frame(dialog, padding=20)
+    main_form_frame.pack(fill=BOTH, expand=True)
+
+    # --- Variabili Tkinter ---
+    tipo_trans_var = tk.StringVar(value="Entrata")  # Default
+    data_var = tk.StringVar(value=datetime.now().strftime("%Y-%m-%d"))  # Solo data per DateEntry
+    conto_var = tk.StringVar()
+    conto_dest_var = tk.StringVar()  # Per giroconto
+    categoria_var = tk.StringVar()
+    importo_var = tk.StringVar(value="0.00")
+    descrizione_var = tk.StringVar()
+
+    # Futuro: tags_var = tk.StringVar()
+
+    # --- Funzioni Helper Interne al Dialogo ---
+    def aggiorna_visibilita_campi(*args):
+        tipo_selezionato = tipo_trans_var.get()
+        if tipo_selezionato == "Giroconto":
+            # Mostra conto destinazione, nascondi categoria standard
+            lbl_conto_origine.config(text="Conto Origine:")
+            lbl_categoria.grid_remove()
+            entry_categoria.grid_remove()
+            lbl_conto_dest.grid()
+            combo_conto_dest.grid()
+        else:
+            # Mostra categoria standard, nascondi conto destinazione
+            lbl_conto_origine.config(text="Conto:")
+            lbl_conto_dest.grid_remove()
+            combo_conto_dest.grid_remove()
+            lbl_categoria.grid()
+            entry_categoria.grid()  # O un Combobox per categorie se le gestisci
+
+        # Aggiorna etichetta importo per chiarezza
+        if tipo_selezionato == "Uscita":
+            lbl_importo.config(text="Importo (Uscita):")
+        elif tipo_selezionato == "Entrata":
+            lbl_importo.config(text="Importo (Entrata):")
+        else:  # Giroconto
+            lbl_importo.config(text="Importo Giroconto:")
+
+    def on_conferma_nuova_transazione():
+        tipo = tipo_trans_var.get()
+        data_str_ui = data_entry.entry.get()  # Prende dalla DateEntry
+        conto_sel = conto_var.get()
+        descrizione_sel = descrizione_var.get()
+        importo_str_sel = importo_var.get()
+
+        try:
+            # Validazione base UI (quella più approfondita è nel servizio)
+            if not data_str_ui: raise ValueError("Data mancante.")
+            datetime.strptime(data_str_ui, "%Y-%m-%d")  # Valida formato data UI
+
+            if not conto_sel: raise ValueError("Conto mancante.")
+            if not importo_str_sel: raise ValueError("Importo mancante.")
+            float(importo_str_sel)  # Valida che sia un numero
+
+            if tipo == "Giroconto":
+                conto_dest_sel = conto_dest_var.get()
+                categoria_sel = "Giroconto"  # Fissa per giroconti
+                if not conto_dest_sel: raise ValueError("Conto destinazione mancante.")
+                if conto_sel == conto_dest_sel: raise ValueError("I conti di un giroconto devono essere diversi.")
+
+                services.esegui_giroconto(
+                    services.ottieni_conto_per_nome(conto_sel)['id_conto'],  # Passa ID
+                    services.ottieni_conto_per_nome(conto_dest_sel)['id_conto'],  # Passa ID
+                    importo_str_sel,
+                    descrizione_sel if descrizione_sel else "Giroconto",  # Default descrizione
+                    data_str_ui  # Il servizio gestirà l'ora
+                )
+            else:  # Entrata o Uscita
+                categoria_sel = categoria_var.get()
+                if not categoria_sel: raise ValueError("Categoria mancante.")
+
+                importo_effettivo_str = importo_str_sel
+                if tipo == "Uscita":
+                    # Assicura che l'importo sia negativo o rendilo negativo
+                    if float(importo_str_sel) > 0:
+                        importo_effettivo_str = str(-float(importo_str_sel))
+
+                services.registra_nuova_transazione(
+                    services.ottieni_conto_per_nome(conto_sel)['id_conto'],  # Passa ID
+                    importo_effettivo_str,
+                    categoria_sel,
+                    descrizione_sel,
+                    data_transazione_input=data_str_ui  # Il servizio gestirà l'ora
+                    # tags_str=tags_var.get() # Per il futuro
+                )
+
+            # Non serve popup di successo qui, l'utente vede l'aggiornamento
+            dialog.destroy()
+            callback_refresh()
+
+        except ValueError as ve:
+            Messagebox.show_warning(str(ve), "Dati Non Validi", parent=dialog)
+            if dialog.winfo_exists():  # Assicurati che il dialogo esista ancora
+                nome_conto_entry.focus_set()
+        except Exception as e:
+            Messagebox.show_error(f"Errore imprevisto:\n{e}", "Errore Transazione", parent=dialog)
+            print(f"Dettaglio errore nuova transazione: {type(e).__name__}: {e}")
+            if dialog.winfo_exists():
+                print(f"Dettaglio errore nuova transazione: {type(e).__name__}: {e}")
+
+    # --- Layout del Form ---
+    row_idx = 0
+
+    # Tipo Transazione
+    ttkb.Label(main_form_frame, text="Tipo Transazione:", anchor=W).grid(row=row_idx, column=0, sticky="ew", pady=2)
+    tipo_frame = ttkb.Frame(main_form_frame)
+    tipo_frame.grid(row=row_idx, column=1, sticky="ew", pady=2)
+    row_idx += 1
+    opzioni_tipo = ["Entrata", "Uscita", "Giroconto"]
+    for i, opzione in enumerate(opzioni_tipo):
+        rb = ttkb.Radiobutton(tipo_frame, text=opzione, variable=tipo_trans_var, value=opzione,
+                              bootstyle="primary-toolbutton")
+        rb.pack(side=LEFT, padx=(0, 5), fill=X, expand=True)
+    tipo_trans_var.trace_add("write", aggiorna_visibilita_campi)  # Aggiorna UI al cambio
+
+    # Data
+    ttkb.Label(main_form_frame, text="Data:", anchor=W).grid(row=row_idx, column=0, sticky="ew", pady=2)
+    data_entry = ttkb.DateEntry(main_form_frame, bootstyle=PRIMARY, dateformat="%Y-%m-%d", firstweekday=0)
+    data_entry.entry.config(textvariable=data_var)  # Collega a data_var per impostare il default
+    data_entry.grid(row=row_idx, column=1, sticky="ew", pady=2)
+    row_idx += 1
+
+    # Lista dei nomi dei conti per i Combobox
+    try:
+        nomi_conti_attivi = [c['nome_conto'] for c in services.ottieni_tutti_i_conti(solo_attivi=True)]
+        if not nomi_conti_attivi:
+            Messagebox.show_warning("Nessun Conto",
+                                    "Non ci sono conti attivi. Creane uno prima di aggiungere transazioni.",
+                                    parent=dialog)
+            # Potresti disabilitare il form o chiudere il dialogo
+            # dialog.after(100, dialog.destroy) # Chiude dopo un breve ritardo
+            # return # Esce dalla funzione se non ci sono conti
+    except Exception as e_conti:
+        Messagebox.show_error(f"Errore caricamento conti: {e_conti}", parent=dialog)
+        nomi_conti_attivi = ["Errore Caricamento Conti"]
+        # dialog.after(100, dialog.destroy)
+        # return
+
+    # Conto (o Conto Origine)
+    lbl_conto_origine = ttkb.Label(main_form_frame, text="Conto:", anchor=W)
+    lbl_conto_origine.grid(row=row_idx, column=0, sticky="ew", pady=2)
+    combo_conto = ttkb.Combobox(main_form_frame, textvariable=conto_var, values=nomi_conti_attivi, bootstyle=PRIMARY,
+                                state="readonly")
+    if nomi_conti_attivi and nomi_conti_attivi[0] != "Errore Caricamento Conti": conto_var.set(
+        nomi_conti_attivi[0])  # Seleziona il primo
+    combo_conto.grid(row=row_idx, column=1, sticky="ew", pady=2)
+    row_idx += 1
+
+    # Categoria (per Entrata/Uscita)
+    lbl_categoria = ttkb.Label(main_form_frame, text="Categoria:", anchor=W)
+    lbl_categoria.grid(row=row_idx, column=0, sticky="ew", pady=2)
+    entry_categoria = ttkb.Entry(main_form_frame, textvariable=categoria_var, bootstyle=PRIMARY)
+    entry_categoria.grid(row=row_idx, column=1, sticky="ew", pady=2)
+    # entry_categoria.focus_set() # Focus dopo conto
+
+    # Conto Destinazione (per Giroconto) - inizialmente nascosto
+    lbl_conto_dest = ttkb.Label(main_form_frame, text="Conto Destinazione:", anchor=W)
+    # Non fare .grid() subito, aggiorna_visibilita_campi lo gestirà
+    combo_conto_dest = ttkb.Combobox(main_form_frame, textvariable=conto_dest_var, values=nomi_conti_attivi,
+                                     bootstyle=PRIMARY, state="readonly")
+    if len(nomi_conti_attivi) > 1 and nomi_conti_attivi[0] != "Errore Caricamento Conti":
+        conto_dest_var.set(nomi_conti_attivi[1])  # Seleziona il secondo se esiste
+    elif nomi_conti_attivi and nomi_conti_attivi[0] != "Errore Caricamento Conti":
+        conto_dest_var.set(nomi_conti_attivi[0])
+
+    # Importo
+    lbl_importo = ttkb.Label(main_form_frame, text="Importo:", anchor=W)
+    lbl_importo.grid(row=row_idx + 1, column=0, sticky="ew", pady=2)  # row_idx incrementato dopo categoria/conto_dest
+    entry_importo = ttkb.Entry(main_form_frame, textvariable=importo_var, bootstyle=PRIMARY)
+    entry_importo.grid(row=row_idx + 1, column=1, sticky="ew", pady=2)
+
+    # Descrizione
+    ttkb.Label(main_form_frame, text="Descrizione (Opzionale):", anchor=W).grid(row=row_idx + 2, column=0, sticky="ew",
+                                                                                pady=2)
+    entry_descrizione = ttkb.Entry(main_form_frame, textvariable=descrizione_var, bootstyle=PRIMARY)
+    entry_descrizione.grid(row=row_idx + 2, column=1, sticky="ew", pady=2)
+
+    # Configura espansione colonna 1
+    main_form_frame.columnconfigure(1, weight=1)
+
+    # Chiamata iniziale per impostare la visibilità corretta dei campi
+    aggiorna_visibilita_campi()
+
+    # --- Pulsanti di Azione ---
+    action_frame = ttkb.Frame(dialog, padding=(0, 15, 0, 0))
+    action_frame.pack(fill=X, side=BOTTOM, padx=20, pady=(15, 10))
+
+    btn_conferma = ttkb.Button(action_frame, text="💾 Registra Transazione", command=on_conferma_nuova_transazione,
+                               bootstyle=SUCCESS)
+    btn_conferma.pack(side=RIGHT, padx=(5, 0))
+
+    btn_annulla = ttkb.Button(action_frame, text="❌ Annulla", command=dialog.destroy, bootstyle=LIGHT)
+    btn_annulla.pack(side=RIGHT)
+
+    dialog.bind('<Return>', lambda event: on_conferma_nuova_transazione())
+    dialog.bind('<Escape>', lambda event: dialog.destroy())
+
+    dialog.update_idletasks()
+    parent_x = app_root_param.winfo_x();
+    parent_y = app_root_param.winfo_y()
+    parent_width = app_root_param.winfo_width();
+    parent_height = app_root_param.winfo_height()
+    dialog_width = dialog.winfo_width();
+    dialog_height = dialog.winfo_height()
+    x_pos = parent_x + (parent_width // 2) - (dialog_width // 2)
+    y_pos = parent_y + (parent_height // 2) - (dialog_height // 2)
+    dialog.geometry(f"+{x_pos}+{y_pos}")
+
+    dialog.after(50, dialog.lift)
+    # dialog.after(100, entry_categoria.focus_force) # O un altro campo a seconda del tipo default
+    if tipo_trans_var.get() == "Giroconto":
+        dialog.after(100, combo_conto_dest.focus_force)
+    else:
+        dialog.after(100, entry_categoria.focus_force)
 
 
 def apri_dialog_nuovo_conto(app_root_param, callback_refresh):
-    # UI per Toplevel per aggiungere un nuovo conto
-    # Chiama services.crea_nuovo_conto e poi callback_refresh()
-    Messagebox.show_info("TODO: Finestra Nuovo Conto", "Implementami!", parent=app_root_param)
+    dialog = ttkb.Toplevel(master=app_root_param, title="➕ Nuovo Conto")
+    dialog.geometry("400x300")  # Regola dimensioni se necessario
+    dialog.transient(app_root_param)  # Imposta come "figlia" della finestra principale
+    dialog.grab_set()  # Rende la finestra modale
+    dialog.resizable(False, False)
+
+    form_frame = ttkb.Frame(dialog, padding=20)
+    form_frame.pack(fill=BOTH, expand=True)
+
+    # --- Campi del Form ---
+    # Nome Conto
+    ttkb.Label(form_frame, text="Nome Conto:", anchor=W).grid(row=0, column=0, sticky="ew", pady=(0, 5))
+    nome_conto_entry = ttkb.Entry(form_frame, bootstyle=PRIMARY)
+    nome_conto_entry.grid(row=0, column=1, sticky="ew", pady=(0, 5))
+    nome_conto_entry.focus_set()  # Focus iniziale
+
+    # Saldo Iniziale
+    ttkb.Label(form_frame, text="Saldo Iniziale:", anchor=W).grid(row=1, column=0, sticky="ew", pady=5)
+    saldo_entry = ttkb.Entry(form_frame, bootstyle=PRIMARY)
+    saldo_entry.grid(row=1, column=1, sticky="ew", pady=5)
+    saldo_entry.insert(0, "0.00")  # Valore di default
+
+    # Tipo Conto (Opzionale - Combobox)
+    tipi_conto_comuni = ["Bancario", "Carta di Credito", "Contanti", "Risparmio", "Investimento", "Altro"]
+    ttkb.Label(form_frame, text="Tipo Conto (Opzionale):", anchor=W).grid(row=2, column=0, sticky="ew", pady=5)
+    tipo_conto_combo = ttkb.Combobox(form_frame, values=tipi_conto_comuni, bootstyle=PRIMARY)
+    tipo_conto_combo.grid(row=2, column=1, sticky="ew", pady=5)
+    tipo_conto_combo.set("Bancario")  # Valore di default
+
+    # Valuta (Opzionale - per ora fisso o Entry semplice)
+    ttkb.Label(form_frame, text="Valuta:", anchor=W).grid(row=3, column=0, sticky="ew", pady=5)
+    valuta_entry = ttkb.Entry(form_frame, bootstyle=PRIMARY)
+    valuta_entry.grid(row=3, column=1, sticky="ew", pady=5)
+    valuta_entry.insert(0, "EUR")  # Default
+
+    # Configura espansione colonne nel form_frame
+    form_frame.columnconfigure(1, weight=1)
+
+    # --- Funzione di Conferma ---
+    def on_conferma_nuovo_conto():
+        nome = nome_conto_entry.get()
+        saldo_str = saldo_entry.get()
+        tipo = tipo_conto_combo.get()
+        valuta = valuta_entry.get()
+
+        try:
+            # Chiamata al servizio per creare il conto
+            services.crea_nuovo_conto(nome, saldo_str, tipo, valuta)
+            # Messagebox.show_info("Conto Creato", f"Il conto '{nome}' è stato creato con successo.", parent=dialog)
+            dialog.destroy()
+            callback_refresh()  # Aggiorna la vista principale
+        except ValueError as ve:  # Errori di validazione dal servizio
+            Messagebox.show_warning(str(ve), "Dati Non Validi", parent=dialog)
+            nome_conto_entry.focus_set()  # Rimetti focus sul primo campo problematico
+        except Exception as e:  # Altri errori (es. DB)
+            Messagebox.show_error(f"Errore imprevisto:\n{e}", "Errore Creazione Conto", parent=dialog)
+            print(f"Dettaglio errore creazione conto: {type(e).__name__}: {e}")
+
+    # --- Pulsanti di Azione ---
+    action_frame = ttkb.Frame(dialog, padding=(0, 10, 0, 0))  # Padding solo sopra
+    action_frame.pack(fill=X, side=BOTTOM, padx=20, pady=10)
+
+    btn_conferma = ttkb.Button(action_frame, text="💾 Salva Conto", command=on_conferma_nuovo_conto, bootstyle=SUCCESS)
+    btn_conferma.pack(side=RIGHT, padx=(5, 0))
+
+    btn_annulla = ttkb.Button(action_frame, text="❌ Annulla", command=dialog.destroy, bootstyle=LIGHT)
+    btn_annulla.pack(side=RIGHT)
+
+    dialog.bind('<Return>', lambda event: on_conferma_nuovo_conto())  # Invio per confermare
+    dialog.bind('<Escape>', lambda event: dialog.destroy())  # Escape per chiudere
+
+    # Centra il dialogo rispetto alla finestra principale
+    dialog.update_idletasks()  # Necessario per ottenere le dimensioni corrette
+    parent_x = app_root_param.winfo_x()
+    parent_y = app_root_param.winfo_y()
+    parent_width = app_root_param.winfo_width()
+    parent_height = app_root_param.winfo_height()
+    dialog_width = dialog.winfo_width()
+    dialog_height = dialog.winfo_height()
+    x_pos = parent_x + (parent_width // 2) - (dialog_width // 2)
+    y_pos = parent_y + (parent_height // 2) - (dialog_height // 2)
+    dialog.geometry(f"+{x_pos}+{y_pos}")
+
+    dialog.after(50, dialog.lift)  # Assicura che sia in primo piano
+    dialog.after(100, nome_conto_entry.focus_force)  # Forza il focus
 
 
-def apri_dialog_modifica_conto(app_root_param, selected_item_ids, callback_refresh):
-    if not selected_item_ids: return
-    id_conto_da_modificare = selected_item_ids[0]  # Prende il primo selezionato
-    # UI per Toplevel per modificare il conto con ID id_conto_da_modificare
-    # Chiama services.modifica_nome_conto (o altri servizi) e poi callback_refresh()
-    Messagebox.show_info(f"TODO: Modifica Conto ID {id_conto_da_modificare}", "Implementami!", parent=app_root_param)
+def apri_dialog_modifica_transazione(app_root_param, callback_refresh):
+    if not trans_tree or not trans_tree.selection():
+        Messagebox.show_info("Nessuna Selezione", "Seleziona una transazione da modificare.", parent=app_root_param)
+        return
+
+    selected_item_id_str = trans_tree.selection()[0]
+    id_trans_da_modificare = int(selected_item_id_str)
+
+    trans_originale = services.ottieni_transazione_singola(id_trans_da_modificare)
+    if not trans_originale:
+        Messagebox.show_error(f"Transazione ID {id_trans_da_modificare} non trovata.", "Errore", parent=app_root_param)
+        callback_refresh()
+        return
+
+    dialog = ttkb.Toplevel(master=app_root_param, title="✏️ Modifica Transazione")
+    dialog.geometry("520x460")  # Simile a nuova transazione
+    dialog.transient(app_root_param)
+    dialog.grab_set()
+    dialog.resizable(False, False)
+
+    main_form_frame = ttkb.Frame(dialog, padding=20)
+    main_form_frame.pack(fill=BOTH, expand=True)
+
+    # --- Variabili Tkinter e pre-popolamento ---
+    # Determina il tipo basandosi sull'importo o sul campo tipo_transazione se esiste
+    tipo_iniziale = "Entrata"
+    importo_iniziale_abs_str = f"{abs(float(trans_originale['importo'])):.2f}"
+
+    if trans_originale.get('tipo_transazione') == "Giroconto_Out" or \
+            trans_originale.get('tipo_transazione') == "Giroconto_In" or \
+            trans_originale.get('categoria', '').lower() == "giroconto":  # Fallback se tipo_transazione non c'è
+        tipo_iniziale = "Giroconto"
+    elif float(trans_originale['importo']) < 0:
+        tipo_iniziale = "Uscita"
+
+    tipo_trans_var = tk.StringVar(value=tipo_iniziale)
+
+    data_dt_obj = datetime.strptime(trans_originale['data_transazione'], '%Y-%m-%d %H:%M:%S')
+    data_var = tk.StringVar(value=data_dt_obj.strftime("%Y-%m-%d"))
+
+    conto_var = tk.StringVar(value=trans_originale['nome_conto'])  # nome_conto è già joinato
+
+    conto_dest_var = tk.StringVar()  # Da popolare se giroconto
+    categoria_var = tk.StringVar(value=trans_originale['categoria'])
+    importo_var = tk.StringVar(value=importo_iniziale_abs_str)  # Mostra sempre positivo nella UI
+    descrizione_var = tk.StringVar(value=trans_originale['descrizione'])
+
+    # Se è un giroconto, dobbiamo trovare il conto di destinazione/origine
+    if tipo_iniziale == "Giroconto":
+        categoria_var.set("Giroconto")  # La categoria è fissa
+        # Trova la transazione collegata per pre-popolare l'altro conto
+        id_collegata = trans_originale.get('id_transazione_collegata')
+        conto_altro_capo = ""
+        if id_collegata:
+            trans_collegata = services.ottieni_transazione_singola(id_collegata)
+            if trans_collegata: conto_altro_capo = trans_collegata['nome_conto']
+        else:  # Prova a dedurlo dalla descrizione se id_collegata non c'è (vecchi dati?)
+            desc = trans_originale['descrizione'].lower()
+            if "->" in desc:
+                conto_altro_capo = desc.split("->")[-1].strip().title()
+            elif "<-" in desc:
+                conto_altro_capo = desc.split("<-")[-1].strip().title()
+
+        if trans_originale['tipo_transazione'] == "Giroconto_Out":  # Questo era l'origine, l'altro è dest
+            conto_dest_var.set(conto_altro_capo if conto_altro_capo else "")
+        elif trans_originale['tipo_transazione'] == "Giroconto_In":  # Questo era dest, l'altro è origine
+            # In questo caso, il conto_var è il dest, e conto_dest_var è l'origine
+            # Per UI, conto_var è sempre origine, conto_dest_var è sempre destinazione
+            conto_var.set(conto_altro_capo if conto_altro_capo else "")  # Conto origine
+            conto_dest_var.set(trans_originale['nome_conto'])  # Conto destinazione (quello corrente)
+
+    # --- Funzioni Helper Interne al Dialogo (identiche a nuova transazione) ---
+    def aggiorna_visibilita_campi_mod(*args):  # Nome leggermente diverso per evitare conflitti se definite globalmente
+        tipo_selezionato = tipo_trans_var.get()
+        if tipo_selezionato == "Giroconto":
+            lbl_conto_origine_mod.config(text="Conto Origine:")
+            lbl_categoria_mod.grid_remove();
+            entry_categoria_mod.grid_remove()
+            lbl_conto_dest_mod.grid();
+            combo_conto_dest_mod.grid()
+        else:
+            lbl_conto_origine_mod.config(text="Conto:")
+            lbl_conto_dest_mod.grid_remove();
+            combo_conto_dest_mod.grid_remove()
+            lbl_categoria_mod.grid();
+            entry_categoria_mod.grid()
+
+        if tipo_selezionato == "Uscita":
+            lbl_importo_mod.config(text="Importo (Uscita):")
+        elif tipo_selezionato == "Entrata":
+            lbl_importo_mod.config(text="Importo (Entrata):")
+        else:
+            lbl_importo_mod.config(text="Importo Giroconto:")
+
+    def on_conferma_modifica_transazione():
+        tipo_nuovo = tipo_trans_var.get()
+        data_str_ui_nuova = data_entry_mod.entry.get()
+        conto_sel_nuovo = conto_var.get()
+        descrizione_sel_nuova = descrizione_var.get()
+        importo_str_sel_nuovo = importo_var.get()  # Questo è sempre positivo dalla UI
+
+        try:
+            if not data_str_ui_nuova: raise ValueError("Data mancante.")
+            datetime.strptime(data_str_ui_nuova, "%Y-%m-%d")
+            if not conto_sel_nuovo: raise ValueError("Conto mancante.")
+            if not importo_str_sel_nuovo: raise ValueError("Importo mancante.")
+            importo_ui_float = float(importo_str_sel_nuovo)
+            if importo_ui_float <= 0: raise ValueError("L'importo nel campo deve essere positivo.")
+
+            # NOTA: la modifica di un giroconto è complessa.
+            # Un giroconto sono DUE transazioni. Modificarne una implica modificare anche l'altra.
+            # O, più semplicemente, si elimina il vecchio giroconto e se ne crea uno nuovo.
+            # Per ora, se si modifica un giroconto, lo trattiamo come eliminazione del vecchio
+            # e creazione di un nuovo giroconto o di transazioni singole.
+            # Questo semplifica enormemente la logica.
+            if trans_originale.get('categoria', '').lower() == "giroconto" and tipo_nuovo != "Giroconto":
+                # L'utente sta trasformando un giroconto in una transazione normale
+                if not Messagebox.yesno("Attenzione",
+                                        "Stai modificando un giroconto in una transazione singola. La transazione collegata verrà eliminata. Continuare?",
+                                        parent=dialog):
+                    return
+                # Elimina la transazione originale (e la sua collegata se il servizio lo fa)
+                services.elimina_transazione_esistente(id_trans_da_modificare)  # Questo deve gestire la collegata
+                # Poi registra come nuova transazione singola
+                categoria_sel_nuova = categoria_var.get()
+                if not categoria_sel_nuova: raise ValueError("Categoria mancante.")
+                importo_finale_str = importo_str_sel_nuovo
+                if tipo_nuovo == "Uscita": importo_finale_str = str(-importo_ui_float)
+
+                conto_obj_nuovo = services.ottieni_conto_per_nome(conto_sel_nuovo)
+                if not conto_obj_nuovo: raise ValueError(f"Conto '{conto_sel_nuovo}' non trovato.")
+
+                services.registra_nuova_transazione(
+                    conto_obj_nuovo['id_conto'], importo_finale_str, categoria_sel_nuova,
+                    descrizione_sel_nuova, data_transazione_input=data_str_ui_nuova
+                )
+
+            elif tipo_nuovo == "Giroconto":
+                conto_dest_sel_nuovo = conto_dest_var.get()
+                if not conto_dest_sel_nuovo: raise ValueError("Conto destinazione mancante.")
+                if conto_sel_nuovo == conto_dest_sel_nuovo: raise ValueError(
+                    "I conti di un giroconto devono essere diversi.")
+
+                # Se la transazione originale era un giroconto, la eliminiamo e creiamo un nuovo giroconto
+                if trans_originale.get('categoria', '').lower() == "giroconto":
+                    services.elimina_transazione_esistente(
+                        id_trans_da_modificare)  # Assumiamo che questo gestisca la collegata
+
+                conto_origine_obj = services.ottieni_conto_per_nome(conto_sel_nuovo)
+                conto_dest_obj = services.ottieni_conto_per_nome(conto_dest_sel_nuovo)
+                if not conto_origine_obj: raise ValueError(f"Conto origine '{conto_sel_nuovo}' non trovato.")
+                if not conto_dest_obj: raise ValueError(f"Conto destinazione '{conto_dest_sel_nuovo}' non trovato.")
+
+                services.esegui_giroconto(
+                    conto_origine_obj['id_conto'], conto_dest_obj['id_conto'],
+                    importo_str_sel_nuovo,  # Importo (sempre positivo dalla UI)
+                    descrizione_sel_nuova if descrizione_sel_nuova else "Giroconto",
+                    data_giroconto_input=data_str_ui_nuova
+                )
+            else:  # Modifica di una transazione Entrata/Uscita standard
+                categoria_sel_nuova = categoria_var.get()
+                if not categoria_sel_nuova: raise ValueError("Categoria mancante.")
+
+                importo_finale_float = importo_ui_float
+                if tipo_nuovo == "Uscita": importo_finale_float = -importo_ui_float
+
+                conto_obj_nuovo = services.ottieni_conto_per_nome(conto_sel_nuovo)
+                if not conto_obj_nuovo: raise ValueError(f"Conto '{conto_sel_nuovo}' non trovato.")
+
+                services.modifica_transazione_esistente(
+                    id_trans_da_modificare,
+                    conto_obj_nuovo['id_conto'],
+                    str(importo_finale_float),  # Passa stringa come si aspetta il servizio per coerenza
+                    categoria_sel_nuova,
+                    descrizione_sel_nuova,
+                    data_trans_nuova_input=data_str_ui_nuova,
+                    # tipo_trans_nuovo=... (il servizio dovrebbe determinarlo o prenderlo)
+                )
+
+            dialog.destroy()
+            callback_refresh()
+
+        except ValueError as ve:
+            if hasattr(dialog, 'bell'): dialog.bell()
+            Messagebox.show_warning(str(ve), "Dati Non Validi", parent=dialog)
+        except Exception as e:
+            if hasattr(dialog, 'bell'): dialog.bell()
+            Messagebox.show_error(f"Errore imprevisto:\n{e}", "Errore Modifica Transazione", parent=dialog)
+            print(f"Dettaglio errore modifica transazione: {type(e).__name__}: {e}")
+
+    # --- Layout del Form (simile a Nuova Transazione, ma con valori pre-popolati) ---
+    row_idx_mod = 0
+    ttkb.Label(main_form_frame, text="Tipo Transazione:", anchor=W).grid(row=row_idx_mod, column=0, sticky="ew", pady=2)
+    tipo_frame_mod = ttkb.Frame(main_form_frame)
+    tipo_frame_mod.grid(row=row_idx_mod, column=1, sticky="ew", pady=2);
+    row_idx_mod += 1
+    opzioni_tipo_mod = ["Entrata", "Uscita", "Giroconto"]
+    for i, opzione in enumerate(opzioni_tipo_mod):
+        rb_mod = ttkb.Radiobutton(tipo_frame_mod, text=opzione, variable=tipo_trans_var, value=opzione,
+                                  bootstyle="primary-toolbutton")
+        rb_mod.pack(side=LEFT, padx=(0, 5), fill=X, expand=True)
+    tipo_trans_var.trace_add("write", aggiorna_visibilita_campi_mod)
+
+    ttkb.Label(main_form_frame, text="Data:", anchor=W).grid(row=row_idx_mod, column=0, sticky="ew", pady=2)
+    data_entry_mod = ttkb.DateEntry(main_form_frame, bootstyle=PRIMARY, dateformat="%Y-%m-%d", firstweekday=0)
+    data_entry_mod.entry.config(textvariable=data_var)  # Usa data_var pre-popolata
+    data_entry_mod.grid(row=row_idx_mod, column=1, sticky="ew", pady=2);
+    row_idx_mod += 1
+
+    nomi_conti_attivi_mod = [c['nome_conto'] for c in services.ottieni_tutti_i_conti(solo_attivi=True)]
+    if not nomi_conti_attivi_mod: nomi_conti_attivi_mod = [
+        conto_var.get()]  # Usa il conto originale se non ci sono altri attivi
+
+    lbl_conto_origine_mod = ttkb.Label(main_form_frame, text="Conto:", anchor=W)
+    lbl_conto_origine_mod.grid(row=row_idx_mod, column=0, sticky="ew", pady=2)
+    combo_conto_mod = ttkb.Combobox(main_form_frame, textvariable=conto_var, values=nomi_conti_attivi_mod,
+                                    bootstyle=PRIMARY, state="readonly")
+    combo_conto_mod.grid(row=row_idx_mod, column=1, sticky="ew", pady=2);
+    row_idx_categoria_mod = row_idx_mod;
+    row_idx_mod += 1
+
+    lbl_categoria_mod = ttkb.Label(main_form_frame, text="Categoria:", anchor=W)
+    entry_categoria_mod = ttkb.Entry(main_form_frame, textvariable=categoria_var, bootstyle=PRIMARY)
+
+    lbl_conto_dest_mod = ttkb.Label(main_form_frame, text="Conto Destinazione:", anchor=W)
+    combo_conto_dest_mod = ttkb.Combobox(main_form_frame, textvariable=conto_dest_var, values=nomi_conti_attivi_mod,
+                                         bootstyle=PRIMARY, state="readonly")
+
+    lbl_categoria_mod.grid(row=row_idx_categoria_mod, column=0, sticky="ew", pady=2)
+    entry_categoria_mod.grid(row=row_idx_categoria_mod, column=1, sticky="ew", pady=2)
+    lbl_conto_dest_mod.grid(row=row_idx_categoria_mod, column=0, sticky="ew", pady=2);
+    lbl_conto_dest_mod.grid_remove()
+    combo_conto_dest_mod.grid(row=row_idx_categoria_mod, column=1, sticky="ew", pady=2);
+    combo_conto_dest_mod.grid_remove()
+
+    lbl_importo_mod = ttkb.Label(main_form_frame, text="Importo:", anchor=W)
+    lbl_importo_mod.grid(row=row_idx_mod, column=0, sticky="ew", pady=2)
+    entry_importo_mod = ttkb.Entry(main_form_frame, textvariable=importo_var, bootstyle=PRIMARY)
+    entry_importo_mod.grid(row=row_idx_mod, column=1, sticky="ew", pady=2);
+    row_idx_mod += 1
+
+    ttkb.Label(main_form_frame, text="Descrizione (Opzionale):", anchor=W).grid(row=row_idx_mod, column=0, sticky="ew",
+                                                                                pady=2)
+    entry_descrizione_mod = ttkb.Entry(main_form_frame, textvariable=descrizione_var, bootstyle=PRIMARY)
+    entry_descrizione_mod.grid(row=row_idx_mod, column=1, sticky="ew", pady=2);
+    row_idx_mod += 1
+
+    main_form_frame.columnconfigure(1, weight=1)
+    aggiorna_visibilita_campi_mod()
+
+    action_frame_mod = ttkb.Frame(dialog, padding=(0, 15, 0, 0))
+    action_frame_mod.pack(fill=X, side=BOTTOM, padx=20, pady=(15, 10))
+    btn_conferma_mod = ttkb.Button(action_frame_mod, text="💾 Salva Modifiche", command=on_conferma_modifica_transazione,
+                                   bootstyle=SUCCESS)
+    btn_conferma_mod.pack(side=RIGHT, padx=(5, 0))
+    btn_annulla_mod = ttkb.Button(action_frame_mod, text="❌ Annulla", command=dialog.destroy, bootstyle=LIGHT)
+    btn_annulla_mod.pack(side=RIGHT)
+    dialog.bind('<Return>', lambda event: on_conferma_modifica_transazione())
+    dialog.bind('<Escape>', lambda event: dialog.destroy())
+    dialog.update_idletasks()
+    parent_x = app_root_param.winfo_x();
+    parent_y = app_root_param.winfo_y()
+    parent_width = app_root_param.winfo_width();
+    parent_height = app_root_param.winfo_height()
+    dialog_width = dialog.winfo_width();
+    dialog_height = dialog.winfo_height()
+    x_pos = parent_x + (parent_width // 2) - (dialog_width // 2);
+    y_pos = parent_y + (parent_height // 2) - (dialog_height // 2)
+    dialog.geometry(f"+{x_pos}+{y_pos}")
+    dialog.after(50, dialog.lift)
+    # Focus iniziale
+    entry_importo_mod.focus_set()
+    entry_importo_mod.select_range(0, END)
 
 
-def apri_dialog_correggi_saldo(app_root_param, selected_item_ids, callback_refresh):
-    if not selected_item_ids: return
-    id_conto_da_correggere = selected_item_ids[0]
-    Messagebox.show_info(f"TODO: Correggi Saldo Conto ID {id_conto_da_correggere}", "Implementami!",
-                         parent=app_root_param)
-    # try:
-    #    nuovo_saldo_str = simpledialog.askstring("Correggi Saldo", "Inserisci il nuovo saldo corretto:")
-    #    if nuovo_saldo_str is not None:
-    #        services.correggi_saldo_manuale(id_conto_da_correggere, nuovo_saldo_str) # Data opzionale
-    #        callback_refresh()
-    # except Exception as e:
-    #    Messagebox.show_error(str(e), "Errore Correzione Saldo")
+def elimina_transazione_selezionata(callback_refresh_func): # Passiamo il callback direttamente
+    if not trans_tree or not trans_tree.selection():
+        Messagebox.show_info("Nessuna Selezione", "Seleziona una transazione da eliminare.", parent=app_state["app_root_ref"])
+        return
 
+    selected_item_id_str = trans_tree.selection()[0] # L'iid è l'id_transazione
+    id_trans_da_eliminare = int(selected_item_id_str)
 
-def apri_dialog_modifica_transazione(app_root_param, selected_item_ids, callback_refresh):
-    if not selected_item_ids: return
-    id_trans_da_modificare = selected_item_ids[0]
-    Messagebox.show_info(f"TODO: Modifica Transazione ID {id_trans_da_modificare}", "Implementami!",
-                         parent=app_root_param)
+    # Recupera qualche dettaglio per il messaggio di conferma
+    trans_details = services.ottieni_transazione_singola(id_trans_da_eliminare)
+    if not trans_details:
+        Messagebox.show_error(f"Transazione ID {id_trans_da_eliminare} non trovata nel database.", "Errore", parent=app_state["app_root_ref"])
+        callback_refresh_func() # Ricarica la lista per sicurezza
+        return
 
+    msg_confirm = (f"Sei sicuro di voler eliminare la seguente transazione?\n\n"
+                   f"Data: {datetime.strptime(trans_details['data_transazione'], '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y')}\n"
+                   f"Conto: {trans_details['nome_conto']}\n"
+                   f"Descrizione: {trans_details['descrizione']}\n"
+                   f"Importo: {trans_details['importo']:.2f} €\n\n"
+                   f"Questa operazione è irreversibile.")
 
-def elimina_transazione_selezionata(selected_item_ids, callback_refresh):
-    if not selected_item_ids: return
-    id_trans_da_eliminare = selected_item_ids[0]
-    if Messagebox.okcancel(f"Confermi eliminazione transazione ID {id_trans_da_eliminare}?", "Conferma Eliminazione",
-                           parent=app_state["app_root_ref"]):
+    conferma = Messagebox.yesno(msg_confirm, "Conferma Eliminazione", parent=app_state["app_root_ref"])
+
+    if conferma == "Yes": # Messagebox.yesno restituisce stringhe "Yes"/"No"
         try:
             services.elimina_transazione_esistente(id_trans_da_eliminare)
-            callback_refresh()
-            Messagebox.show_info("Transazione eliminata.", "Successo")
+            # Messagebox.show_info("Successo", "Transazione eliminata con successo.", parent=app_state["app_root_ref"]) # Opzionale
+            callback_refresh_func()
         except Exception as e:
-            Messagebox.show_error(str(e), "Errore Eliminazione")
+            Messagebox.show_error(f"Errore durante l'eliminazione:\n{e}", "Errore Eliminazione", parent=app_state["app_root_ref"])
+            print(f"Dettaglio errore eliminazione transazione: {type(e).__name__}: {e}")
 
 
-# Funzione helper per ordinare Treeview (opzionale, ma carina)
+# Funzione helper per ordinare Treeview
 def sort_treeview_column(tv, col, reverse):
     # Estrai i dati e l'iid di ogni riga
     data_list = [(tv.set(k, col), k) for k in tv.get_children('')]
@@ -977,22 +1756,453 @@ def navigate_away_from_dashboard():
         app_state["edit_mode_active"] = False
 
 
-def apri_conti(main_frame, app_root):
+def populate_investimenti_tree():
+    # Accedi ai widget tramite app_state
+    inv_tree_ui = app_state.get("inv_tree_ref")
+    lbl_valore_tot_inv_ui = app_state.get("inv_lbl_valore_tot_ref")
+
+    if not inv_tree_ui or not inv_tree_ui.winfo_exists():
+        # print("DEBUG populate_investimenti_tree: inv_tree_ref non trovato o distrutto.")
+        return
+
+    current_selection = inv_tree_ui.selection()
+    for item in inv_tree_ui.get_children():
+        inv_tree_ui.delete(item)
+
+    try:
+        investimenti_list = services.ottieni_tutti_gli_investimenti(solo_attivi=True)
+        if investimenti_list is None: investimenti_list = []
+
+        for inv in investimenti_list:
+            pmc_str = f"{float(inv['pmc_unitario']):.2f}" if inv.get('pmc_unitario') is not None else "-"
+            val_att_unit_str = f"{float(inv['valore_attuale_unitario']):.2f}" if inv.get(
+                'valore_attuale_unitario') is not None else "-"
+            val_tot_att_str = f"{float(inv['valore_totale_attuale_calc']):.2f}" if inv.get(
+                'valore_totale_attuale_calc') is not None else "-"
+
+            pl_perc_val = inv.get('pl_percentuale_calc')
+            pl_perc_str = "-"
+            if pl_perc_val == float('inf'):
+                pl_perc_str = "N/A (Inf)"  # O un altro indicatore come "+∞%"
+            elif pl_perc_val is not None:
+                pl_perc_str = f"{float(pl_perc_val):+.2f}%"  # Aggiunto '+' per i positivi
+
+            data_val_att_str = datetime.strptime(inv['data_valore_attuale'], '%Y-%m-%d %H:%M:%S').strftime(
+                '%d/%m/%y') if inv.get('data_valore_attuale') else "-"
+
+            tag_colore = ""
+            if inv.get('pl_assoluto_calc') is not None:
+                if inv['pl_assoluto_calc'] > 0.001:
+                    tag_colore = "entrata"  # Piccola tolleranza per float
+                elif inv['pl_assoluto_calc'] < -0.001:
+                    tag_colore = "uscita"
+
+            inv_tree_ui.insert("", END, iid=inv['id_investimento'], values=(
+                inv['nome_strumento'], inv.get('simbolo', '-'), inv['tipo_asset'],
+                f"{float(inv['quantita']):.4f}",
+                f"{pmc_str} {inv.get('valuta', 'EUR')}",
+                f"{val_att_unit_str} {inv.get('valuta', 'EUR')}",
+                f"{val_tot_att_str} {inv.get('valuta', 'EUR')}",
+                pl_perc_str, data_val_att_str
+            ), tags=(tag_colore,))
+
+        if current_selection and len(current_selection) > 0 and inv_tree_ui.exists(current_selection[0]):
+            inv_tree_ui.selection_set(current_selection[0])
+            inv_tree_ui.focus(current_selection[0])
+
+        # Aggiorna il riepilogo del portafoglio
+        if lbl_valore_tot_inv_ui and lbl_valore_tot_inv_ui.winfo_exists():
+            valore_complessivo = sum(i.get('valore_totale_attuale_calc', 0.0) for i in investimenti_list if
+                                     i.get('valore_totale_attuale_calc') is not None)
+            costo_complessivo_attivo = sum(i.get('costo_totale_carico', 0.0) for i in investimenti_list if
+                                           i.get('costo_totale_carico') is not None and i.get('quantita',
+                                                                                              0) > 0.00001 and i.get(
+                                               'attivo'))  # Solo per posizioni attive con quantità
+
+            pl_totale_abs = 0
+            pl_perc_str_tot = "N/A"
+
+            if valore_complessivo is not None and costo_complessivo_attivo is not None:
+                pl_totale_abs = valore_complessivo - costo_complessivo_attivo
+                if costo_complessivo_attivo > 0.001:  # Evita divisione per zero o costi irrisori
+                    pl_perc_totale_calc = (pl_totale_abs / costo_complessivo_attivo) * 100
+                    pl_perc_str_tot = f"{pl_perc_totale_calc:+.2f}%"
+                elif valore_complessivo > 0:  # Costo zero ma valore positivo (es. crypto airdrop)
+                    pl_perc_str_tot = "+Inf%"
+
+            lbl_valore_tot_inv_ui.config(
+                text=f"Valore Totale Portafoglio Attivo: {valore_complessivo:,.2f} €   |   P/L Totale: {pl_totale_abs:,.2f} € ({pl_perc_str_tot})"
+            )
+
+    except Exception as e:
+        Messagebox.show_error(f"Errore caricamento investimenti: {e}", "Errore Dati",
+                              parent=app_state.get("app_root_ref"))
+        print(f"Dettaglio errore populate_investimenti_tree: {type(e).__name__}: {e}")
+
+    update_investimenti_buttons_state()
+
+
+def update_investimenti_buttons_state(event=None):
+    # Accedi ai riferimenti dei bottoni e del treeview da app_state
+    inv_tree_ui = app_state.get("inv_tree_ref")
+
+    buttons_to_update = {
+        "modifica": app_state.get("inv_btn_modifica_ref"),
+        "aggiorna_val": app_state.get("inv_btn_aggiorna_val_ref"),
+        "acquista": app_state.get("inv_btn_acquista_ref"),
+        "vendi": app_state.get("inv_btn_vendi_ref"),
+        "chiudi_pos": app_state.get("inv_btn_chiudi_pos_ref")
+    }
+
+    if not inv_tree_ui or not inv_tree_ui.winfo_exists() or not all(buttons_to_update.values()):
+        # print("DEBUG update_investimenti_buttons_state: tree o uno o più bottoni non pronti.")
+        # Se i bottoni non sono ancora creati, potresti disabilitarli di default
+        # e abilitarli qui solo se esistono. Per ora, usciamo se non tutti sono pronti.
+        return
+
+    selected_items = inv_tree_ui.selection()
+    stato_se_selezionato = NORMAL if selected_items else DISABLED
+
+    for btn_widget in buttons_to_update.values():
+        if btn_widget and btn_widget.winfo_exists():  # Controllo aggiuntivo
+            btn_widget.config(state=stato_se_selezionato)
+
+
+def apri_investimenti_view(main_frame, app_root_param):
+    # app_state è già globale, non serve ridichiararlo qui
+    # Rimuovi le vecchie dichiarazioni 'global inv_tree, btn_inv_modifica, ...'
+
+    app_state["active_view"] = "investimenti"
     navigate_away_from_dashboard()
-    for widget in main_frame.winfo_children(): widget.destroy()
-    ttkb.Label(main_frame, text="Sezione Conti", font=("Segoe UI", 16, "bold")).pack(pady=20)
+
+    for widget in main_frame.winfo_children():
+        widget.destroy()
+
+    # --- Header Sezione ---
+    header_inv = ttkb.Frame(main_frame, padding=(10, 10))
+    header_inv.pack(fill=X)
+    ttkb.Label(header_inv, text="Portafoglio Investimenti", font=("Segoe UI", 18, "bold")).pack(side=LEFT, padx=(0, 20))
+
+    btn_nuovo_inv = ttkb.Button(header_inv, text="➕ Nuovo Investimento", bootstyle=SUCCESS,
+                                command=lambda: apri_dialog_nuovo_investimento(app_root_param,
+                                                                               populate_investimenti_tree))
+    btn_nuovo_inv.pack(side=RIGHT)
+    ttkb.Separator(main_frame, orient=HORIZONTAL).pack(fill=X, pady=5, padx=10)
+
+    # --- Riepilogo Portafoglio ---
+    summary_frame = ttkb.Frame(main_frame, padding=(10, 0, 10, 10))
+    summary_frame.pack(fill=X)
+    lbl_valore_tot_inv_widget = ttkb.Label(summary_frame, text="Valore Totale Portafoglio: In caricamento...",
+                                           font="-weight bold")
+    lbl_valore_tot_inv_widget.pack(side=LEFT)
+    app_state["inv_lbl_valore_tot_ref"] = lbl_valore_tot_inv_widget  # Salva riferimento in app_state
+
+    # --- Treeview per gli Investimenti ---
+    tree_frame = ttkb.Frame(main_frame, padding=(10, 0, 10, 10))
+    tree_frame.pack(fill=BOTH, expand=True)
+
+    cols_inv = ("nome", "simbolo", "tipo", "qta", "pmc", "val_att", "val_tot", "pl_perc", "data_val")
+    inv_tree_widget = ttk.Treeview(tree_frame, columns=cols_inv, show="headings", height=15, selectmode="browse")
+    app_state["inv_tree_ref"] = inv_tree_widget  # Salva riferimento in app_state
+
+    # Configurazione headings e columns (usa app_state["inv_tree_ref"] o una var locale inv_tree_ui)
+    inv_tree_ui = app_state["inv_tree_ref"]  # Per comodità
+    inv_tree_ui.heading("nome", text="Nome Strumento", command=lambda: sort_treeview_column(inv_tree_ui, "nome", False))
+    # ... (configura tutti gli altri headings e columns usando inv_tree_ui) ...
+    inv_tree_ui.heading("simbolo", text="Simbolo", command=lambda: sort_treeview_column(inv_tree_ui, "simbolo", False))
+    inv_tree_ui.heading("tipo", text="Tipo Asset", command=lambda: sort_treeview_column(inv_tree_ui, "tipo", False))
+    inv_tree_ui.heading("qta", text="Quantità", anchor=E,
+                        command=lambda: sort_treeview_column(inv_tree_ui, "qta", True))
+    inv_tree_ui.heading("pmc", text="PMC Un.", anchor=E, command=lambda: sort_treeview_column(inv_tree_ui, "pmc", True))
+    inv_tree_ui.heading("val_att", text="Val. Att. Un.", anchor=E,
+                        command=lambda: sort_treeview_column(inv_tree_ui, "val_att", True))
+    inv_tree_ui.heading("val_tot", text="Val. Totale", anchor=E,
+                        command=lambda: sort_treeview_column(inv_tree_ui, "val_tot", True))
+    inv_tree_ui.heading("pl_perc", text="P/L %", anchor=E,
+                        command=lambda: sort_treeview_column(inv_tree_ui, "pl_perc", True))
+    inv_tree_ui.heading("data_val", text="Agg. Val.", anchor=CENTER,
+                        command=lambda: sort_treeview_column(inv_tree_ui, "data_val", False))
+
+    inv_tree_ui.column("nome", width=200, stretch=True, minwidth=150)
+    inv_tree_ui.column("simbolo", width=80, stretch=False, minwidth=60, anchor=CENTER)
+    inv_tree_ui.column("tipo", width=120, stretch=False, minwidth=100)
+    inv_tree_ui.column("qta", width=100, stretch=False, anchor=E, minwidth=80)
+    inv_tree_ui.column("pmc", width=100, stretch=False, anchor=E, minwidth=80)
+    inv_tree_ui.column("val_att", width=100, stretch=False, anchor=E, minwidth=80)
+    inv_tree_ui.column("val_tot", width=120, stretch=False, anchor=E, minwidth=100)
+    inv_tree_ui.column("pl_perc", width=80, stretch=False, anchor=E, minwidth=70)
+    inv_tree_ui.column("data_val", width=100, stretch=False, anchor=CENTER, minwidth=80)
+
+    inv_tree_ui.tag_configure("entrata", foreground=app_root_param.style.colors.success if hasattr(app_root_param.style,
+                                                                                                   'colors') else 'green')
+    inv_tree_ui.tag_configure("uscita", foreground=app_root_param.style.colors.danger if hasattr(app_root_param.style,
+                                                                                                 'colors') else 'red')
+
+    inv_tree_scroll_y = ttkb.Scrollbar(tree_frame, orient=VERTICAL, command=inv_tree_ui.yview,
+                                       bootstyle="round-primary")
+    inv_tree_ui.configure(yscrollcommand=inv_tree_scroll_y.set)
+    inv_tree_scroll_x = ttkb.Scrollbar(tree_frame, orient=HORIZONTAL, command=inv_tree_ui.xview,
+                                       bootstyle="round-primary")
+    inv_tree_ui.configure(xscrollcommand=inv_tree_scroll_x.set)
+
+    inv_tree_scroll_y.pack(side=RIGHT, fill=Y)
+    inv_tree_scroll_x.pack(side=BOTTOM, fill=X)
+    inv_tree_ui.pack(side=LEFT, fill=BOTH, expand=True)
+
+    # --- Frame Pulsanti Azione per Riga Selezionata ---
+    action_buttons_frame_inv = ttkb.Frame(main_frame, padding=(10, 10))
+    action_buttons_frame_inv.pack(fill=X)
+
+    btn_inv_modifica_widget = ttkb.Button(action_buttons_frame_inv, text="✏️ Modifica Dati", bootstyle=(INFO, OUTLINE),
+                                          state=DISABLED,
+                                          command=lambda: apri_dialog_modifica_investimento(app_root_param,
+                                                                                            populate_investimenti_tree))
+    app_state["inv_btn_modifica_ref"] = btn_inv_modifica_widget  # SALVA IN APP_STATE
+    app_state["inv_btn_modifica_ref"].pack(side=LEFT, padx=3)
+
+    btn_inv_aggiorna_val_widget = ttkb.Button(action_buttons_frame_inv, text="🔄 Aggiorna Valore",
+                                              bootstyle=(PRIMARY, OUTLINE), state=DISABLED,
+                                              command=lambda: apri_dialog_aggiorna_valore_investimento(app_root_param,
+                                                                                                       populate_investimenti_tree))
+    app_state["inv_btn_aggiorna_val_ref"] = btn_inv_aggiorna_val_widget  # SALVA IN APP_STATE
+    app_state["inv_btn_aggiorna_val_ref"].pack(side=LEFT, padx=3)
+
+    btn_inv_acquista_widget = ttkb.Button(action_buttons_frame_inv, text="➕ Acquista Altro",
+                                          bootstyle=(SUCCESS, OUTLINE), state=DISABLED,
+                                          command=lambda: apri_dialog_acquista_altro(app_root_param,
+                                                                                     populate_investimenti_tree))
+    app_state["inv_btn_acquista_ref"] = btn_inv_acquista_widget  # SALVA IN APP_STATE
+    app_state["inv_btn_acquista_ref"].pack(side=LEFT, padx=3)
+
+    btn_inv_vendi_widget = ttkb.Button(action_buttons_frame_inv, text="💰 Vendi", bootstyle=(WARNING, OUTLINE),
+                                       state=DISABLED,
+                                       command=lambda: apri_dialog_vendi_investimento(app_root_param,
+                                                                                      populate_investimenti_tree))
+    app_state["inv_btn_vendi_ref"] = btn_inv_vendi_widget  # SALVA IN APP_STATE
+    app_state["inv_btn_vendi_ref"].pack(side=LEFT, padx=3)
+
+    btn_inv_chiudi_pos_widget = ttkb.Button(action_buttons_frame_inv, text="❌ Chiudi Posizione",
+                                            bootstyle=(DANGER, OUTLINE), state=DISABLED,
+                                            command=lambda: chiudi_posizione_investimento_selezionato(app_root_param,
+                                                                                                      populate_investimenti_tree))
+    app_state["inv_btn_chiudi_pos_ref"] = btn_inv_chiudi_pos_widget  # SALVA IN APP_STATE
+    app_state["inv_btn_chiudi_pos_ref"].pack(side=LEFT, padx=3)
+
+    app_state["inv_tree_ref"].bind("<<TreeviewSelect>>",
+                                   update_investimenti_buttons_state)  # Usa il riferimento da app_state
+
+    populate_investimenti_tree()
+    # update_investimenti_buttons_state() # Già chiamato da populate_investimenti_tree alla fine
 
 
-def apri_transazioni(main_frame, app_root):
-    navigate_away_from_dashboard()
-    for widget in main_frame.winfo_children(): widget.destroy()
-    ttkb.Label(main_frame, text="Storico Transazioni", font=("Segoe UI", 16, "bold")).pack(pady=20)
+def apri_dialog_nuovo_investimento(app_root_param, callback_refresh):
+    dialog = ttkb.Toplevel(master=app_root_param, title="➕ Nuovo Investimento")
+    dialog.geometry("620x550")
+    dialog.transient(app_root_param)
+    dialog.grab_set()
+    dialog.resizable(False, False)  # Finestra non resizable
 
+    # Frame principale per tutti i contenuti del dialogo
+    main_dialog_frame = ttkb.Frame(dialog, padding=20)  # Padding generale per il dialogo
+    main_dialog_frame.pack(fill=BOTH, expand=True)
 
-def apri_investimenti(main_frame, app_root):
-    navigate_away_from_dashboard()
-    for widget in main_frame.winfo_children(): widget.destroy()
-    ttkb.Label(main_frame, text="Portafoglio Investimenti", font=("Segoe UI", 16, "bold")).pack(pady=20)
+    # Frame per i campi del form (questo non sarà più lo sf.container)
+    form_frame = ttkb.Frame(main_dialog_frame)
+    form_frame.pack(fill=BOTH, expand=True, pady=(0, 15))  # pady per separarlo dai bottoni sotto
+
+    # Variabili Tkinter
+    nome_var = tk.StringVar()
+    simbolo_var = tk.StringVar()
+    tipo_asset_var = tk.StringVar()
+    quantita_var = tk.StringVar(value="0.0")
+    pmc_unitario_var = tk.StringVar()
+    costo_totale_carico_var = tk.StringVar()
+    valuta_var = tk.StringVar(value="EUR")
+    data_primo_acquisto_var = tk.StringVar(value=datetime.now().strftime("%Y-%m-%d"))
+    conto_detenzione_var = tk.StringVar()
+    # note_var non serve per Text widget, si usa .get("1.0", "end-1c")
+
+    # Layout del Form
+    row_idx = 0
+    pady_val = (6, 2)  # Riduciamo un po' il padding verticale per far stare più cose
+    label_width = 20  # Larghezza fissa per i Label per allineamento (opzionale)
+
+    # Nome Strumento
+    ttkb.Label(form_frame, text="Nome Strumento:", anchor=W, width=label_width).grid(row=row_idx, column=0, sticky="w",
+                                                                                     pady=pady_val, padx=(0, 10))
+    nome_entry = ttkb.Entry(form_frame, textvariable=nome_var, bootstyle=PRIMARY)
+    nome_entry.grid(row=row_idx, column=1, columnspan=3, sticky="ew", pady=pady_val);
+    row_idx += 1
+    nome_entry.focus_set()
+
+    # Simbolo/Ticker
+    ttkb.Label(form_frame, text="Simbolo/Ticker (Opz.):", anchor=W, width=label_width).grid(row=row_idx, column=0,
+                                                                                            sticky="w", pady=pady_val,
+                                                                                            padx=(0, 10))
+    simbolo_entry = ttkb.Entry(form_frame, textvariable=simbolo_var, bootstyle=PRIMARY)
+    simbolo_entry.grid(row=row_idx, column=1, columnspan=3, sticky="ew", pady=pady_val);
+    row_idx += 1
+
+    # Tipo Asset
+    tipi_asset_comuni = sorted(
+        ["Azione", "ETF", "Obbligazione", "Fondo Comune", "Criptovaluta", "Immobiliare", "Materia Prima", "Altro"])
+    ttkb.Label(form_frame, text="Tipo Asset:", anchor=W, width=label_width).grid(row=row_idx, column=0, sticky="w",
+                                                                                 pady=pady_val, padx=(0, 10))
+    tipo_asset_combo = ttkb.Combobox(form_frame, textvariable=tipo_asset_var, values=tipi_asset_comuni,
+                                     bootstyle=PRIMARY, state="readonly")
+    tipo_asset_combo.grid(row=row_idx, column=1, columnspan=3, sticky="ew", pady=pady_val);
+    row_idx += 1
+    if tipi_asset_comuni: tipo_asset_var.set("Azione")
+
+    # Quantità e Valuta
+    ttkb.Label(form_frame, text="Quantità:", anchor=W, width=label_width).grid(row=row_idx, column=0, sticky="w",
+                                                                               pady=pady_val, padx=(0, 10))
+    quantita_entry = ttkb.Entry(form_frame, textvariable=quantita_var, bootstyle=PRIMARY)
+    quantita_entry.grid(row=row_idx, column=1, sticky="ew", pady=pady_val)
+    ttkb.Label(form_frame, text="Valuta:", anchor=W).grid(row=row_idx, column=2, sticky="e", pady=pady_val,
+                                                          padx=(5, 5))  # sticky 'e'
+    valuta_entry = ttkb.Entry(form_frame, textvariable=valuta_var, bootstyle=PRIMARY, width=8)
+    valuta_entry.grid(row=row_idx, column=3, sticky="w", pady=pady_val);
+    row_idx += 1
+
+    # PMC Unitario
+    ttkb.Label(form_frame, text="PMC Unitario:", anchor=W, width=label_width).grid(row=row_idx, column=0, sticky="w",
+                                                                                   pady=pady_val, padx=(0, 10))
+    pmc_entry = ttkb.Entry(form_frame, textvariable=pmc_unitario_var, bootstyle=PRIMARY)
+    pmc_entry.grid(row=row_idx, column=1, columnspan=3, sticky="ew", pady=pady_val);
+    row_idx += 1
+
+    # Costo Totale di Carico
+    ttkb.Label(form_frame, text="Costo Tot. Carico (Opz.):", anchor=W, width=label_width).grid(row=row_idx, column=0,
+                                                                                               sticky="w",
+                                                                                               pady=pady_val,
+                                                                                               padx=(0, 10))
+    costo_entry = ttkb.Entry(form_frame, textvariable=costo_totale_carico_var, bootstyle=PRIMARY)
+    costo_entry.grid(row=row_idx, column=1, columnspan=3, sticky="ew", pady=pady_val)
+    ttkb.Label(form_frame, text="(Se inserito, sovrascrive PMC * Q.tà)", font="-size 8", bootstyle=SECONDARY).grid(
+        row=row_idx + 1, column=1, columnspan=3, sticky="w", pady=(0, pady_val[0]));
+    row_idx += 2  # Incrementa di 2 per il label piccolo
+
+    # Data Primo Acquisto
+    ttkb.Label(form_frame, text="Data Primo Acquisto:", anchor=W, width=label_width).grid(row=row_idx, column=0,
+                                                                                          sticky="w", pady=pady_val,
+                                                                                          padx=(0, 10))
+    data_acq_entry = ttkb.DateEntry(form_frame, bootstyle=PRIMARY, dateformat="%Y-%m-%d", firstweekday=0)
+    data_acq_entry.entry.config(textvariable=data_primo_acquisto_var)
+    data_acq_entry.grid(row=row_idx, column=1, columnspan=3, sticky="ew", pady=pady_val);
+    row_idx += 1
+
+    # Conto di Detenzione/Pagamento
+    try:
+        nomi_conti_cassa = [c['nome_conto'] for c in services.ottieni_tutti_i_conti(solo_attivi=True) if
+                            c.get('tipo_conto', '').lower() not in ["investimento"]]
+        nomi_conti_cassa.insert(0, "")
+    except Exception:
+        nomi_conti_cassa = [""]
+    ttkb.Label(form_frame, text="Conto Pagamento (Opz.):", anchor=W, width=label_width).grid(row=row_idx, column=0,
+                                                                                             sticky="w", pady=pady_val,
+                                                                                             padx=(0, 10))
+    conto_det_combo = ttkb.Combobox(form_frame, textvariable=conto_detenzione_var, values=nomi_conti_cassa,
+                                    bootstyle=PRIMARY, state="readonly")
+    conto_det_combo.grid(row=row_idx, column=1, columnspan=3, sticky="ew", pady=pady_val);
+    row_idx += 1
+
+    # Note
+    ttkb.Label(form_frame, text="Note (Opzionali):", anchor=NW, width=label_width).grid(row=row_idx, column=0,
+                                                                                        sticky="nw", pady=pady_val,
+                                                                                        padx=(0, 10))
+    # Per tk.Text, è meglio dargli un frame contenitore se vuoi un bordo ttkbootstrap-like
+    # e controllare l'espansione.
+    note_outer_frame = ttkb.Frame(form_frame)  # Non serve bootstyle qui, è solo per layout
+    note_outer_frame.grid(row=row_idx, column=1, columnspan=3, sticky="ew", pady=pady_val);
+    row_idx += 1
+
+    note_text = tk.Text(note_outer_frame, height=3, width=30, relief=SOLID, borderwidth=1, font=("Segoe UI", 9),
+                        wrap=WORD)
+    note_text_scroll = ttkb.Scrollbar(note_outer_frame, orient=VERTICAL, command=note_text.yview,
+                                      bootstyle="round-primary-slim")
+    note_text['yscrollcommand'] = note_text_scroll.set
+    note_text_scroll.pack(side=RIGHT, fill=Y)  # Scrollbar a destra del Text
+    note_text.pack(side=LEFT, fill=BOTH, expand=True)  # Text occupa il resto
+
+    # Configura le colonne del form_frame per l'espansione
+    form_frame.columnconfigure(0, weight=0)  # Colonna Label
+    form_frame.columnconfigure(1, weight=1)  # Colonna Entry principale
+    form_frame.columnconfigure(2, weight=0)  # Colonna Label valuta
+    form_frame.columnconfigure(3, weight=0)  # Colonna Entry valuta
+
+    # --- Funzione di Conferma (invariata) ---
+    def on_conferma_nuovo_investimento():
+        nome_val = nome_var.get()
+        simbolo_val = simbolo_var.get()
+        tipo_val = tipo_asset_var.get()
+        qta_str = quantita_var.get()
+        pmc_str = pmc_unitario_var.get()
+        costo_str = costo_totale_carico_var.get()
+        valuta_val = valuta_var.get()
+        data_acq_str_ui = data_acq_entry.entry.get()
+        conto_det_nome = conto_detenzione_var.get()
+        id_conto_det_fk = None
+        if conto_det_nome:
+            conto_obj = services.ottieni_conto_per_nome(conto_det_nome)
+            if conto_obj:
+                id_conto_det_fk = conto_obj['id_conto']
+            else:
+                Messagebox.show_warning("Conto di pagamento selezionato non valido.", "Attenzione", parent=dialog,
+                                        alert=True); return
+        note_val = note_text.get("1.0", "end-1c").strip()
+
+        try:
+            services.aggiungi_nuovo_investimento(
+                nome_strumento=nome_val, simbolo=simbolo_val, tipo_asset=tipo_val,
+                quantita_str=qta_str, pmc_unitario_str=pmc_str, costo_totale_carico_str=costo_str,
+                valore_attuale_unitario_str=None, data_valore_attuale_input=None,
+                id_conto_detenzione_fk=id_conto_det_fk, valuta=valuta_val,
+                data_primo_acquisto_input=data_acq_str_ui, note=note_val
+            )
+            toast = ToastNotification(title="Investimento Aggiunto", message=f"'{nome_val}' aggiunto!", duration=3000,
+                                      bootstyle=SUCCESS, alert=True, position=(20, 20, 'se'))
+            toast.show_toast()
+            dialog.destroy()
+            callback_refresh()
+        except ValueError as ve:
+            if hasattr(dialog, 'bell'): dialog.bell()
+            Messagebox.show_warning(str(ve), "Dati Non Validi", parent=dialog, alert=True)
+        except Exception as e:
+            if hasattr(dialog, 'bell'): dialog.bell()
+            Messagebox.show_error(f"Errore imprevisto:\n{e}", "Errore Creazione", parent=dialog, alert=True)
+            print(f"Dettaglio errore nuovo investimento: {type(e).__name__}: {e}")
+
+    # --- Pulsanti di Azione (figli di main_dialog_frame) ---
+    action_frame = ttkb.Frame(main_dialog_frame)  # Figlio di main_dialog_frame
+    action_frame.pack(fill=X, side=BOTTOM, pady=(10, 0))  # Padding sopra i bottoni
+
+    btn_conferma = ttkb.Button(action_frame, text="💾 Salva Investimento", command=on_conferma_nuovo_investimento,
+                               bootstyle=SUCCESS)
+    btn_conferma.pack(side=RIGHT, padx=5)  # Aggiunto padx per separarlo dal bordo se è l'unico
+    btn_annulla = ttkb.Button(action_frame, text="❌ Annulla", command=dialog.destroy, bootstyle=LIGHT)
+    btn_annulla.pack(side=RIGHT, padx=(0, 5))
+
+    dialog.bind('<Return>', lambda event: on_conferma_nuovo_investimento())
+    dialog.bind('<Escape>', lambda event: dialog.destroy())
+
+    dialog.update_idletasks()
+    # Centratura
+    parent_x = app_root_param.winfo_x();
+    parent_y = app_root_param.winfo_y()
+    parent_width = app_root_param.winfo_width();
+    parent_height = app_root_param.winfo_height()
+
+    # Usa le dimensioni richieste dal contenuto per il dialogo, ma con un minimo
+    dialog_width = max(dialog.winfo_reqwidth() + 40, 600)  # +40 per il padding del main_dialog_frame
+    dialog_height = max(dialog.winfo_reqheight() + 60, 550)  # +60 per padding e bottoni
+
+    x_pos = parent_x + (parent_width // 2) - (dialog_width // 2);
+    y_pos = parent_y + (parent_height // 2) - (dialog_height // 2)
+    dialog.geometry(f"{dialog_width}x{dialog_height}+{x_pos}+{y_pos}")
+
+    dialog.after(50, dialog.lift)
+    dialog.after(100, nome_entry.focus_force)
 
 
 def apri_impostazioni(main_frame, app_root):
@@ -1005,7 +2215,7 @@ def main():
     global app_state
     app = ttkb.Window(themename="superhero");
     app.title("Cato Finance :)")
-    app.geometry("1350x750");
+    app.geometry("1380x750");
     app.minsize(1000, 600);
     app_state["app_root_ref"] = app
     app.update_idletasks()
@@ -1025,7 +2235,7 @@ def main():
     nav_buttons_config = [
         ("🏠 Dashboard", lambda: apri_dashboard(main_content_frame, app)),
         ("💼 Conti e Transazioni", lambda: apri_conti_e_transazioni_view(main_content_frame, app)),
-        ("📈 Investimenti", lambda: apri_investimenti(main_content_frame, app)), ]
+        ("📈 Investimenti", lambda: apri_investimenti_view(main_content_frame, app)), ]
     for text, command in nav_buttons_config:
         ttkb.Button(sidebar, text=text, bootstyle=(SECONDARY, DARK), command=command).pack(fill=X, padx=10, pady=6)
     ttkb.Separator(sidebar, bootstyle=SECONDARY).pack(fill=X, padx=10, pady=(15, 10))
